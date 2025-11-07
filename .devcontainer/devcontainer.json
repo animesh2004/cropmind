@@ -1,0 +1,37 @@
+{
+  "name": "CropMind Development",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:18",
+  
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+      }
+    }
+  },
+
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": {
+      "label": "Next.js Dev Server",
+      "onAutoForward": "notify"
+    }
+  },
+
+  "postCreateCommand": "npm install --legacy-peer-deps",
+  "postStartCommand": "npm run dev",
+
+  "remoteUser": "node"
+}
+

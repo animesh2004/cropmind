@@ -67,6 +67,47 @@ export async function getKaggleRecommendations(
       }
     }
 
+    // Try to use local model prediction API (if available)
+    // This simulates sending data to a model and receiving predictions
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL 
+        ? `https://${process.env.VERCEL_URL}` 
+        : "http://localhost:3000"
+      
+      const modelResponse = await fetch(`${baseUrl}/api/model/predict`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          inputs: {
+            moisture: input.moisture,
+            temperature: input.temperature,
+            humidity: input.humidity,
+          },
+        }),
+      })
+
+      if (modelResponse.ok) {
+        const modelData = (await modelResponse.json()) as {
+          predictions?: string[]
+          recommendations?: string[]
+          confidence?: number
+          crop?: string
+          source?: string
+        }
+        return {
+          recommendations: modelData.recommendations || modelData.predictions || [],
+          confidence: modelData.confidence || 0.85,
+          source: modelData.source || "model",
+          crop: modelData.crop,
+        }
+      }
+    } catch (error) {
+      // Fall through to enhanced recommendations if model API fails
+      console.log("Model API not available, using enhanced recommendations")
+    }
+
     // Try to use Kaggle API to fetch a model or dataset
     // Note: Kaggle doesn't have a direct AI recommendations endpoint
     // You would need to deploy a model or use a Kaggle notebook API

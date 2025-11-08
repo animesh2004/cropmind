@@ -2,6 +2,7 @@ import type React from "react"
 import type { Metadata } from "next"
 import { PT_Sans } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
+import { ThemeProvider } from "@/components/theme-provider"
 import "./globals.css"
 
 const ptSans = PT_Sans({ weight: ["400", "700"], subsets: ["latin"] })
@@ -20,7 +21,14 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${ptSans.className} font-sans antialiased`} suppressHydrationWarning>
-        {children}
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          {children}
+        </ThemeProvider>
         <Analytics />
       </body>
     </html>

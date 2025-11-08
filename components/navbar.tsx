@@ -5,8 +5,10 @@ import Link from "next/link"
 import { Leaf } from "lucide-react"
 import UserProfile from "./user-profile"
 import NotificationSettings from "./notification-settings"
+import { ThemeToggle } from "./theme-toggle"
+import { getTranslation } from "@/lib/translations"
 
-export default function Navbar() {
+export default function Navbar({ language = "en" }: { language?: string }) {
   return (
     <motion.nav
       initial={{ y: -50, opacity: 0 }}
@@ -25,12 +27,13 @@ export default function Navbar() {
           </motion.div>
           <div>
             <h1 className="text-xl font-bold text-foreground bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
-              CropMind
+              {getTranslation("app.title", language)}
             </h1>
-            <p className="text-xs text-muted-foreground font-medium">Agriculture Dashboard</p>
+            <p className="text-xs text-muted-foreground font-medium">{getTranslation("app.subtitle", language)}</p>
           </div>
         </Link>
         <div className="flex items-center gap-3">
+          <ThemeToggle />
           <NotificationSettings />
           <UserProfile />
         </div>

@@ -2,13 +2,22 @@
 
 import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { User, Lock } from "lucide-react"
+import { User, Lock, Globe } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { getTranslation } from "@/lib/translations"
+
+// Only Hindi and English supported for text-to-speech
+const supportedLanguages = [
+  { code: "en", name: "English", nativeName: "English", flag: "🇺🇸" },
+  { code: "hi", name: "Hindi", nativeName: "हिंदी", flag: "🇮🇳" },
+]
 
 export default function UserProfile() {
   const [userName, setUserName] = useState("Animesh")
   const [blynkToken, setBlynkToken] = useState("")
+  const [language, setLanguage] = useState("en")
   const [isOpen, setIsOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
 
@@ -17,13 +26,29 @@ export default function UserProfile() {
     // Load from localStorage
     const savedName = localStorage.getItem("cropMind_userName")
     const savedToken = localStorage.getItem("cropMind_blynkToken")
+    const savedLang = localStorage.getItem("cropMind_language") || "en"
     if (savedName) setUserName(savedName)
     if (savedToken) setBlynkToken(savedToken)
+    if (savedLang) setLanguage(savedLang)
   }, [])
+
+  const handleLanguageChange = (newLang: string) => {
+    setLanguage(newLang)
+    localStorage.setItem("cropMind_language", newLang)
+    // Dispatch custom event to notify other components
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("languageChanged", { detail: { language: newLang } }))
+    }
+  }
 
   const handleSave = () => {
     localStorage.setItem("cropMind_userName", userName)
     localStorage.setItem("cropMind_blynkToken", blynkToken)
+    localStorage.setItem("cropMind_language", language)
+    // Dispatch custom event to notify other components
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("languageChanged", { detail: { language } }))
+    }
     setIsOpen(false)
   }
 
@@ -72,6 +97,32 @@ export default function UserProfile() {
               className="bg-background"
             />
             <p className="text-xs text-muted-foreground">Get your token from Blynk App (Settings → Auth Token)</p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground flex items-center gap-2">
+              <Globe className="w-4 h-4" />
+              Preferred Language
+            </label>
+            <Select value={language} onValueChange={handleLanguageChange}>
+              <SelectTrigger className="bg-background w-full">
+                <SelectValue placeholder="Select language" />
+              </SelectTrigger>
+              <SelectContent>
+                {supportedLanguages.map((lang) => (
+                  <SelectItem key={lang.code} value={lang.code}>
+                    <div className="flex items-center gap-2">
+                      <span>{lang.flag}</span>
+                      <span>{lang.nativeName}</span>
+                      <span className="text-muted-foreground text-xs">({lang.name})</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              This language will be used for text-to-speech and all UI elements
+            </p>
           </div>
 
           <motion.button

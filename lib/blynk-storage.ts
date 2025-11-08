@@ -82,17 +82,28 @@ class BlynkDataStorage {
    * Update sensor data when all pins are available
    */
   private updateSensorData(token: string): void {
-    const pins = ["V0", "V1", "V2", "V3", "V4"]
+    const pins = ["V0", "V1", "V2", "V3", "V4", "V8"]
     const pinData: Record<string, number> = {}
 
     // Get all pin values
     for (const pin of pins) {
       const data = this.getPinValue(token, pin)
       if (data) {
-        const numValue = typeof data.value === "number" ? data.value : Number(data.value)
-        pinData[pin] = isNaN(numValue) ? 0 : numValue
+        if (pin === "V8") {
+          // pH: explicitly convert to float
+          const phValue = typeof data.value === "number" ? data.value : parseFloat(data.value.toString())
+          pinData[pin] = isNaN(phValue) ? 6.8 : phValue
+        } else {
+          const numValue = typeof data.value === "number" ? data.value : Number(data.value)
+          pinData[pin] = isNaN(numValue) ? 0 : numValue
+        }
       } else {
-        // Not all pins available yet
+        // For V8 (pH), allow it to be optional and use default if not available
+        if (pin === "V8") {
+          pinData[pin] = parseFloat("6.8") // Default pH as float
+          continue
+        }
+        // Not all required pins available yet
         return
       }
     }
@@ -104,7 +115,7 @@ class BlynkDataStorage {
       flame: pinData.V2 || 0,
       temperature: pinData.V3 || 0,
       humidity: pinData.V4 || 0,
-      ph: 6.8, // Default pH (can be updated if you add pH sensor)
+      ph: parseFloat((pinData.V8 || 6.8).toString()), // pH from V8 as float, default to 6.8 if not available
       timestamp: new Date().toISOString(),
       source: "webhook",
     })

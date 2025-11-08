@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
-import { Droplet, Thermometer, Wind, Zap, CheckCircle2, Lightbulb, TrendingUp } from "lucide-react"
+import { Droplet, Thermometer, Wind, Zap, CheckCircle2, TrendingUp } from "lucide-react"
+import { findBestCrop, getCropData, CROP_DATABASE } from "@/lib/crop-data"
+import { getTranslation } from "@/lib/translations"
 
 type RecommendationResponse = {
   recommendations: string[]
@@ -15,8 +17,10 @@ type RecommendationResponse = {
   crop?: string
   soilType?: string
   npkRatio?: string
+  fertilizer?: string
   irrigationSchedule?: string
   conditionMatch?: string
+  matchCount?: number
   idealConditions?: {
     moisture: string
     temperature: string
@@ -24,7 +28,7 @@ type RecommendationResponse = {
   }
 }
 
-export default function PersonalizedRecommendations() {
+export default function PersonalizedRecommendations({ language = "en" }: { language?: string }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [recommendations, setRecommendations] = useState<RecommendationResponse | null>(null)
@@ -33,8 +37,26 @@ export default function PersonalizedRecommendations() {
     temperature: "24.5",
     humidity: "62.1",
   })
+  const [currentLanguage, setCurrentLanguage] = useState(language)
 
-  // Auto-fetch current sensor values
+  useEffect(() => {
+    // Update current language when prop changes
+    setCurrentLanguage(language)
+
+    // Listen for language changes from profile
+    const handleLanguageChange = (event: CustomEvent) => {
+      const newLang = (event as CustomEvent<{ language: string }>).detail.language
+      setCurrentLanguage(newLang)
+    }
+
+    window.addEventListener("languageChanged", handleLanguageChange as EventListener)
+
+    return () => {
+      window.removeEventListener("languageChanged", handleLanguageChange as EventListener)
+    }
+  }, [language])
+
+  // Auto-fetch current sensor values and listen for updates
   useEffect(() => {
     const fetchCurrentValues = async () => {
       try {
@@ -57,67 +79,231 @@ export default function PersonalizedRecommendations() {
         // Silently fail - use default values
       }
     }
+
+    // Listen for sensor data updates from environmental monitoring
+    const handleSensorUpdate = (event: CustomEvent) => {
+      const data = (event as CustomEvent<{
+        soilMoisture: number
+        temperature: number
+        humidity: number
+      }>).detail
+      setValues({
+        moisture: data.soilMoisture.toFixed(1),
+        temperature: data.temperature.toFixed(1),
+        humidity: data.humidity.toFixed(1),
+      })
+    }
+
+    // Initial fetch
     fetchCurrentValues()
+
+    // Listen for updates from environmental monitoring
+    window.addEventListener("sensorDataUpdated", handleSensorUpdate as EventListener)
+
+    // Also refresh every 10 seconds to stay in sync
+    const interval = setInterval(fetchCurrentValues, 10000)
+
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener("sensorDataUpdated", handleSensorUpdate as EventListener)
+    }
   }, [])
+
+  // Validate conditions before getting recommendations
+  const validateConditions = (moisture: number, temperature: number, humidity: number): { valid: boolean; message: string } => {
+    // Critical: Zero or negative soil moisture
+    if (moisture <= 0) {
+      return {
+        valid: false,
+        message: "🚨 CRITICAL ALERT: Soil moisture is 0% or below. This is impossible for plant growth! Please check your soil moisture sensor immediately. No crop can survive without water. Immediate irrigation required if this reading is accurate.",
+      }
+    }
+
+    // Critical: Extremely low soil moisture
+    if (moisture < 5) {
+      return {
+        valid: false,
+        message: "🚨 CRITICAL ALERT: Soil moisture is critically low (" + moisture.toFixed(1) + "%). Plants cannot survive at this level. Immediate irrigation is required within the next hour to prevent crop failure. Check sensor if reading seems incorrect.",
+      }
+    }
+
+    // Warning: Very low soil moisture
+    if (moisture < 20) {
+      return {
+        valid: true,
+        message: "⚠️ WARNING: Soil moisture is very low (" + moisture.toFixed(1) + "%). Most crops require at least 30-40% moisture for healthy growth. Schedule irrigation immediately (within 2-4 hours) to prevent crop stress.",
+      }
+    }
+
+    // Critical: Extreme temperatures
+    if (temperature > 50 || temperature < -10) {
+      return {
+        valid: false,
+        message: "🚨 CRITICAL ALERT: Temperature reading is extreme (" + temperature.toFixed(1) + "°C). This is outside the survival range for all crops. Please verify your temperature sensor is functioning correctly.",
+      }
+    }
+
+    // Critical: Freezing temperatures
+    if (temperature < 0) {
+      return {
+        valid: false,
+        message: "🚨 CRITICAL ALERT: Freezing temperatures detected (" + temperature.toFixed(1) + "°C). Most crops cannot survive freezing conditions. Immediate protective measures required: use row covers, greenhouse protection, or consider crop varieties suitable for cold climates.",
+      }
+    }
+
+    // Critical: Extreme heat
+    if (temperature > 45) {
+      return {
+        valid: false,
+        message: "🚨 CRITICAL ALERT: Extreme heat detected (" + temperature.toFixed(1) + "°C). This temperature will cause severe crop damage. Implement emergency cooling measures: shade nets, increased irrigation frequency (3-4 times daily), and consider heat-tolerant crop varieties only.",
+      }
+    }
+
+    // Invalid humidity
+    if (humidity < 0 || humidity > 100) {
+      return {
+        valid: false,
+        message: "⚠️ WARNING: Humidity reading is invalid (" + humidity.toFixed(1) + "%). Humidity must be between 0-100%. Please check your humidity sensor.",
+      }
+    }
+
+    return { valid: true, message: "" }
+  }
 
   const handleGetRecommendations = async () => {
     try {
       setLoading(true)
       setError(null)
       setRecommendations(null)
+
+      const moisture = Number(values.moisture)
+      const temperature = Number(values.temperature)
+      const humidity = Number(values.humidity)
+
+      // Validate conditions first
+      const validation = validateConditions(moisture, temperature, humidity)
+
+      if (!validation.valid) {
+        setError(validation.message)
+        setLoading(false)
+        return
+      }
+
+      // Show warning if applicable
+      if (validation.message) {
+        setError(validation.message)
+      }
+
       const res = await fetch("/api/recommendations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          moisture: Number(values.moisture),
-          temperature: Number(values.temperature),
-          humidity: Number(values.humidity),
+          moisture: moisture,
+          temperature: temperature,
+          humidity: humidity,
         }),
       })
       if (!res.ok) throw new Error("Failed to get recommendations")
       const json = (await res.json()) as RecommendationResponse
-      
+
       // Enhance response with crop recommendation and details
       const enhanced = enhanceRecommendations(json, {
-        moisture: Number(values.moisture),
-        temperature: Number(values.temperature),
-        humidity: Number(values.humidity),
+        moisture: moisture,
+        temperature: temperature,
+        humidity: humidity,
       })
-      
+
       setRecommendations(enhanced)
+      
+      // Wait 2 seconds after data is updated before hiding loading
+      await new Promise((resolve) => setTimeout(resolve, 2000))
     } catch (e) {
       setError("Failed to get recommendations. Please try again.")
+      // Wait 2 seconds even on error
+      await new Promise((resolve) => setTimeout(resolve, 2000))
     } finally {
       setLoading(false)
     }
   }
 
   // Enhance recommendations with crop and detailed parameters
+  // Now uses the complete Kaggle dataset with 22+ crops and data_core.csv dataset
   const enhanceRecommendations = (
     data: RecommendationResponse,
     conditions: { moisture: number; temperature: number; humidity: number }
   ): RecommendationResponse => {
-    // Determine recommended crop based on conditions
+    // If dataset source, use dataset data directly
+    if (data.source === "dataset" && data.crop && data.soilType && data.fertilizer) {
+      const crop = data.crop
+      const cropData = getCropData(crop)
+      
+      // Use dataset fertilizer as NPK ratio
+      const npkRatio = data.fertilizer || (cropData ? cropData.npkRatio : "80-40-40")
+      
+      // Determine irrigation schedule from crop data
+      const irrigationSchedule = cropData 
+        ? cropData.irrigationSchedule 
+        : determineIrrigationSchedule(crop, conditions.moisture, conditions.temperature)
+      
+      // Determine condition match
+      const conditionMatch = determineConditionMatch(conditions)
+      
+      // Ideal conditions from crop data
+      const idealConditions = cropData
+        ? {
+            moisture: `${cropData.moisture.min}-${cropData.moisture.max}%`,
+            temperature: `${cropData.temperature.min}-${cropData.temperature.max}°C`,
+            humidity: `${cropData.humidity.min}-${cropData.humidity.max}%`,
+          }
+        : {
+            moisture: getIdealMoisture(crop),
+            temperature: getIdealTemperature(crop),
+            humidity: getIdealHumidity(crop),
+          }
+
+      return {
+        ...data,
+        crop,
+        soilType: data.soilType,
+        npkRatio,
+        fertilizer: data.fertilizer,
+        irrigationSchedule,
+        conditionMatch,
+        idealConditions,
+      }
+    }
+
+    // Fallback to Kaggle dataset logic
+    // Determine recommended crop based on conditions using Kaggle dataset
     const crop = determineCrop(conditions)
+    const cropData = getCropData(crop)
     
-    // Determine soil type
-    const soilType = determineSoilType(conditions.moisture)
+    // Determine soil type from crop data
+    const soilType = cropData ? cropData.soilType : determineSoilType(crop)
     
-    // Determine NPK ratio
-    const npkRatio = determineNPKRatio(crop, conditions)
+    // Determine NPK ratio from crop data
+    const npkRatio = cropData ? cropData.npkRatio : determineNPKRatio(crop)
     
-    // Determine irrigation schedule
-    const irrigationSchedule = determineIrrigationSchedule(conditions.moisture, conditions.temperature)
+    // Determine irrigation schedule from crop data
+    const irrigationSchedule = cropData 
+      ? cropData.irrigationSchedule 
+      : determineIrrigationSchedule(crop, conditions.moisture, conditions.temperature)
     
     // Determine condition match
     const conditionMatch = determineConditionMatch(conditions)
     
-    // Ideal conditions
-    const idealConditions = {
-      moisture: getIdealMoisture(crop),
-      temperature: getIdealTemperature(crop),
-      humidity: getIdealHumidity(crop),
-    }
+    // Ideal conditions from crop data
+    const idealConditions = cropData
+      ? {
+          moisture: `${cropData.moisture.min}-${cropData.moisture.max}%`,
+          temperature: `${cropData.temperature.min}-${cropData.temperature.max}°C`,
+          humidity: `${cropData.humidity.min}-${cropData.humidity.max}%`,
+        }
+      : {
+          moisture: getIdealMoisture(crop),
+          temperature: getIdealTemperature(crop),
+          humidity: getIdealHumidity(crop),
+        }
 
     return {
       ...data,
@@ -130,57 +316,30 @@ export default function PersonalizedRecommendations() {
     }
   }
 
-  // Determine crop based on conditions
+  // Determine crop based on conditions using scoring system
+  // Now uses the complete Kaggle dataset with 22+ crops
   const determineCrop = (conditions: { moisture: number; temperature: number; humidity: number }): string => {
     const { moisture, temperature, humidity } = conditions
-
-    // Wheat: 50-70% moisture, 12-25°C, 50-70% humidity
-    if (moisture >= 50 && moisture <= 70 && temperature >= 12 && temperature <= 25 && humidity >= 50 && humidity <= 70) {
-      return "Wheat"
-    }
-
-    // Rice: 60-80% moisture, 20-35°C, 70-90% humidity
-    if (moisture >= 60 && moisture <= 80 && temperature >= 20 && temperature <= 35 && humidity >= 70) {
-      return "Rice"
-    }
-
-    // Corn: 50-70% moisture, 15-30°C, 50-70% humidity
-    if (moisture >= 50 && moisture <= 70 && temperature >= 15 && temperature <= 30 && humidity >= 50 && humidity <= 70) {
-      return "Corn"
-    }
-
-    // Soybean: 50-70% moisture, 20-30°C, 60-80% humidity
-    if (moisture >= 50 && moisture <= 70 && temperature >= 20 && temperature <= 30 && humidity >= 60 && humidity <= 80) {
-      return "Soybean"
-    }
-
-    // Tomato: 60-80% moisture, 18-25°C, 60-80% humidity
-    if (moisture >= 60 && moisture <= 80 && temperature >= 18 && temperature <= 25 && humidity >= 60 && humidity <= 80) {
-      return "Tomato"
-    }
-
-    // Default to Wheat for moderate conditions
-    return "Wheat"
+    const result = findBestCrop(moisture, temperature, humidity)
+    return result.crop.name
   }
 
-  const determineSoilType = (moisture: number): string => {
-    if (moisture < 40) return "Sandy Soil"
-    if (moisture > 70) return "Clay Soil"
-    return "Loamy Soil"
+  const determineSoilType = (crop: string): string => {
+    const cropData = getCropData(crop)
+    return cropData?.soilType || "Loamy Soil"
   }
 
-  const determineNPKRatio = (crop: string, conditions: { moisture: number; temperature: number; humidity: number }): string => {
-    const baseRatios: Record<string, string> = {
-      Wheat: "80-40-40",
-      Rice: "100-50-50",
-      Corn: "120-60-60",
-      Soybean: "0-0-60",
-      Tomato: "100-50-100",
+  const determineNPKRatio = (crop: string): string => {
+    const cropData = getCropData(crop)
+    return cropData?.npkRatio || "80-40-40"
+  }
+
+  const determineIrrigationSchedule = (crop: string, moisture: number, temperature: number): string => {
+    const cropData = getCropData(crop)
+    if (cropData) {
+      return cropData.irrigationSchedule
     }
-    return baseRatios[crop] || "80-40-40"
-  }
-
-  const determineIrrigationSchedule = (moisture: number, temperature: number): string => {
+    // Fallback logic
     if (moisture < 40) {
       return "Frequent - Every 1-2 days"
     }
@@ -211,37 +370,29 @@ export default function PersonalizedRecommendations() {
     return "Needs Improvement"
   }
 
+  // Helper functions with fallback to crop database
   const getIdealMoisture = (crop: string): string => {
-    const ideal: Record<string, string> = {
-      Wheat: "50-70%",
-      Rice: "60-80%",
-      Corn: "50-70%",
-      Soybean: "50-70%",
-      Tomato: "60-80%",
+    const cropData = getCropData(crop)
+    if (cropData) {
+      return `${cropData.moisture.min}-${cropData.moisture.max}%`
     }
-    return ideal[crop] || "50-70%"
+    return "50-70%"
   }
 
   const getIdealTemperature = (crop: string): string => {
-    const ideal: Record<string, string> = {
-      Wheat: "12-25°C",
-      Rice: "20-35°C",
-      Corn: "15-30°C",
-      Soybean: "20-30°C",
-      Tomato: "18-25°C",
+    const cropData = getCropData(crop)
+    if (cropData) {
+      return `${cropData.temperature.min}-${cropData.temperature.max}°C`
     }
-    return ideal[crop] || "15-28°C"
+    return "15-28°C"
   }
 
   const getIdealHumidity = (crop: string): string => {
-    const ideal: Record<string, string> = {
-      Wheat: "50-70%",
-      Rice: "70-90%",
-      Corn: "50-70%",
-      Soybean: "60-80%",
-      Tomato: "60-80%",
+    const cropData = getCropData(crop)
+    if (cropData) {
+      return `${cropData.humidity.min}-${cropData.humidity.max}%`
     }
-    return ideal[crop] || "50-70%"
+    return "50-70%"
   }
 
   return (
@@ -261,51 +412,51 @@ export default function PersonalizedRecommendations() {
             <TrendingUp className="w-6 h-6 text-primary" />
           </motion.div>
           <h2 className="text-2xl font-bold text-foreground bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
-            AI-Powered Crop Recommendations
+            {getTranslation("recommendation.title", currentLanguage)}
           </h2>
         </div>
-        <p className="text-sm text-muted-foreground">Get intelligent cultivation advice based on current conditions.</p>
+        <p className="text-sm text-muted-foreground">{getTranslation("recommendation.description", currentLanguage)}</p>
       </div>
 
       {/* Input Conditions */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="relative">
-          <label className="block text-sm font-medium text-foreground mb-2">Soil Moisture (%)</label>
+          <label className="block text-sm font-medium text-foreground mb-2">{getTranslation("recommendation.input.soilMoisture", currentLanguage)}</label>
           <div className="relative">
             <Droplet className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-blue-500" />
-            <Input
-              type="number"
-              value={values.moisture}
-              onChange={(e) => setValues({ ...values, moisture: e.target.value })}
+          <Input
+            type="number"
+            value={values.moisture}
+            onChange={(e) => setValues({ ...values, moisture: e.target.value })}
               className="bg-input border-blue-200 pl-10"
-              disabled
-            />
+            disabled
+          />
           </div>
         </div>
         <div className="relative">
-          <label className="block text-sm font-medium text-foreground mb-2">Temperature (°C)</label>
+          <label className="block text-sm font-medium text-foreground mb-2">{getTranslation("recommendation.input.temperature", currentLanguage)}</label>
           <div className="relative">
             <Thermometer className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-red-500" />
-            <Input
-              type="number"
-              value={values.temperature}
-              onChange={(e) => setValues({ ...values, temperature: e.target.value })}
+          <Input
+            type="number"
+            value={values.temperature}
+            onChange={(e) => setValues({ ...values, temperature: e.target.value })}
               className="bg-input border-red-200 pl-10"
-              disabled
-            />
+            disabled
+          />
           </div>
         </div>
         <div className="relative">
-          <label className="block text-sm font-medium text-foreground mb-2">Humidity (%)</label>
+          <label className="block text-sm font-medium text-foreground mb-2">{getTranslation("recommendation.input.humidity", currentLanguage)}</label>
           <div className="relative">
             <Wind className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-green-500" />
-            <Input
-              type="number"
-              value={values.humidity}
-              onChange={(e) => setValues({ ...values, humidity: e.target.value })}
+          <Input
+            type="number"
+            value={values.humidity}
+            onChange={(e) => setValues({ ...values, humidity: e.target.value })}
               className="bg-input border-green-200 pl-10"
-              disabled
-            />
+            disabled
+          />
           </div>
         </div>
       </div>
@@ -319,18 +470,38 @@ export default function PersonalizedRecommendations() {
           size="lg"
         >
           <Zap className="w-6 h-6 mr-2" />
-          {loading ? "Analyzing Conditions..." : "Get AI Recommendations"}
+                {loading ? getTranslation("button.analyzing", currentLanguage) : getTranslation("button.getRecommendations", currentLanguage)}
         </Button>
       </motion.div>
 
-      {/* Error Message */}
+      {/* Error/Warning Message */}
       {error && (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-4 p-4 bg-destructive/10 border border-destructive rounded-lg text-sm text-destructive"
+          className={`mb-4 p-4 rounded-lg text-sm ${
+            error.includes("CRITICAL ALERT") || error.includes("impossible")
+              ? "bg-red-100 dark:bg-red-900/20 border-2 border-red-500 text-red-800 dark:text-red-200"
+              : error.includes("WARNING")
+                ? "bg-yellow-100 dark:bg-yellow-900/20 border-2 border-yellow-500 text-yellow-800 dark:text-yellow-200"
+                : "bg-destructive/10 border border-destructive text-destructive"
+          }`}
         >
-          {error}
+          <div className="flex items-start gap-2">
+            <div className="flex-shrink-0 mt-0.5">
+              {error.includes("CRITICAL ALERT") ? (
+                <span className="text-2xl">🚨</span>
+              ) : error.includes("WARNING") ? (
+                <span className="text-2xl">⚠️</span>
+              ) : null}
+            </div>
+            <div className="flex-1">
+              <p className="font-semibold mb-1">
+                {error.includes("CRITICAL ALERT") ? getTranslation("alert.critical", currentLanguage) : error.includes("WARNING") ? getTranslation("alert.warning", currentLanguage) : getTranslation("alert.error", currentLanguage)}
+              </p>
+              <p className="whitespace-pre-line leading-relaxed">{error}</p>
+            </div>
+          </div>
         </motion.div>
       )}
 
@@ -348,13 +519,13 @@ export default function PersonalizedRecommendations() {
                 <CheckCircle2 className="w-6 h-6 text-primary-foreground" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Recommended Crop</p>
+                <p className="text-sm text-muted-foreground">{getTranslation("recommendation.crop", currentLanguage)}</p>
                 <h3 className="text-2xl font-bold text-foreground">{recommendations.crop || "Wheat"}</h3>
               </div>
             </div>
             {recommendations.confidence && (
               <Badge className="bg-green-500 text-white px-4 py-2 text-sm font-semibold">
-                {Math.round(recommendations.confidence * 100)}% Confidence
+                {Math.round(recommendations.confidence * 100)}% {getTranslation("recommendation.confidenceLabel", currentLanguage)}
               </Badge>
             )}
           </div>
@@ -363,28 +534,37 @@ export default function PersonalizedRecommendations() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card className="bg-white border-2">
               <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground mb-1">Soil Type</p>
+                <p className="text-xs text-muted-foreground mb-1">{getTranslation("recommendation.soilType", currentLanguage)}</p>
                 <p className="text-lg font-semibold text-foreground">{recommendations.soilType || "Loamy Soil"}</p>
               </CardContent>
             </Card>
             <Card className="bg-white border-2">
               <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground mb-1">NPK Fertilizer Ratio</p>
-                <p className="text-lg font-semibold text-foreground">{recommendations.npkRatio || "80-40-40"}</p>
+                <p className="text-xs text-muted-foreground mb-1">
+                  {recommendations.fertilizer ? getTranslation("recommendation.fertilizerLabel", currentLanguage) : getTranslation("recommendation.npkRatioLabel", currentLanguage)}
+                </p>
+                <p className="text-lg font-semibold text-foreground">
+                  {recommendations.fertilizer || recommendations.npkRatio || "80-40-40"}
+                </p>
+                {recommendations.matchCount && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {getTranslation("recommendation.basedOn", currentLanguage)} {recommendations.matchCount} {getTranslation("recommendation.matchingRecords", currentLanguage)}
+                  </p>
+                )}
               </CardContent>
             </Card>
             <Card className="bg-white border-2">
               <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground mb-1">Irrigation Schedule</p>
+                <p className="text-xs text-muted-foreground mb-1">{getTranslation("recommendation.irrigation", currentLanguage)}</p>
                 <p className="text-lg font-semibold text-foreground">{recommendations.irrigationSchedule || "Moderate - Every 2-3 days"}</p>
               </CardContent>
             </Card>
             <Card className="bg-white border-2 border-green-500">
               <CardContent className="p-4">
-                <p className="text-xs text-muted-foreground mb-1">Condition Match</p>
+                <p className="text-xs text-muted-foreground mb-1">{getTranslation("recommendation.conditionMatch", currentLanguage)}</p>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-5 h-5 text-green-500" />
-                  <p className="text-lg font-semibold text-foreground">{recommendations.conditionMatch || "Optimal"}</p>
+                  <p className="text-lg font-semibold text-foreground">{recommendations.conditionMatch || getTranslation("sensor.status.optimal", currentLanguage)}</p>
                 </div>
               </CardContent>
             </Card>
@@ -394,18 +574,18 @@ export default function PersonalizedRecommendations() {
           {recommendations.idealConditions && (
             <Card className="bg-muted/50 border-2">
               <CardContent className="p-4">
-                <h4 className="text-lg font-semibold text-foreground mb-4">Ideal Growing Conditions</h4>
+                <h4 className="text-lg font-semibold text-foreground mb-4">{getTranslation("recommendation.idealConditions", currentLanguage)}</h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="text-center">
-                    <p className="text-xs text-muted-foreground mb-1">Soil Moisture</p>
+                    <p className="text-xs text-muted-foreground mb-1">{getTranslation("sensor.soilMoisture", currentLanguage)}</p>
                     <p className="text-xl font-bold text-foreground">{recommendations.idealConditions.moisture}</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-xs text-muted-foreground mb-1">Temperature</p>
+                    <p className="text-xs text-muted-foreground mb-1">{getTranslation("sensor.temperature", currentLanguage)}</p>
                     <p className="text-xl font-bold text-foreground">{recommendations.idealConditions.temperature}</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-xs text-muted-foreground mb-1">Humidity</p>
+                    <p className="text-xs text-muted-foreground mb-1">{getTranslation("sensor.humidity", currentLanguage)}</p>
                     <p className="text-xl font-bold text-foreground">{recommendations.idealConditions.humidity}</p>
                   </div>
                 </div>
@@ -413,40 +593,6 @@ export default function PersonalizedRecommendations() {
             </Card>
           )}
 
-          {/* AI Insights */}
-          <Card className="bg-yellow-50 border-2 border-yellow-200">
-            <CardContent className="p-4">
-              <div className="flex items-start gap-3">
-                <Lightbulb className="w-5 h-5 text-yellow-600 mt-1 flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-semibold text-foreground mb-2">AI Insights</p>
-                  <p className="text-sm text-foreground">
-                    Based on your current environmental conditions (Soil Moisture: {values.moisture}%, Temperature: {values.temperature}°C, Humidity: {values.humidity}%),{" "}
-                    <strong>{recommendations.crop || "Wheat"}</strong> is the optimal crop choice with{" "}
-                    {recommendations.confidence ? Math.round(recommendations.confidence * 100) : 92}% confidence. This recommendation is powered by AI analysis of thousands of agricultural datasets.
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Source Badge */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Source:</span>
-            <Badge
-              variant={
-                recommendations.source === "kaggle" || recommendations.source === "kaggle-enhanced"
-                  ? "default"
-                  : "secondary"
-              }
-            >
-              {recommendations.source === "kaggle"
-                ? "🤖 Kaggle AI"
-                : recommendations.source === "kaggle-enhanced"
-                  ? "🤖 Kaggle Enhanced"
-                  : "📋 Rule-Based"}
-            </Badge>
-          </div>
         </motion.div>
       )}
     </motion.section>

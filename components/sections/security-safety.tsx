@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { motion } from "framer-motion"
 import { Shield, AlertTriangle, Flame } from "lucide-react"
 import { showBrowserNotification, formatAlertMessage } from "@/lib/notifications"
+import { getTranslation } from "@/lib/translations"
 
 type SecurityData = {
   pir: number
@@ -12,13 +13,31 @@ type SecurityData = {
   source?: string
 }
 
-export default function SecuritySafety() {
+export default function SecuritySafety({ language = "en" }: { language?: string }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<SecurityData | null>(null)
+  const [currentLanguage, setCurrentLanguage] = useState(language)
   const lastFireAlert = useRef<number>(0)
   const lastAnimalAlert = useRef<number>(0)
   const alertCooldown = 30000 // 30 seconds cooldown
+
+  useEffect(() => {
+    // Update current language when prop changes
+    setCurrentLanguage(language)
+
+    // Listen for language changes from profile
+    const handleLanguageChange = (event: CustomEvent) => {
+      const newLang = (event as CustomEvent<{ language: string }>).detail.language
+      setCurrentLanguage(newLang)
+    }
+
+    window.addEventListener("languageChanged", handleLanguageChange as EventListener)
+
+    return () => {
+      window.removeEventListener("languageChanged", handleLanguageChange as EventListener)
+    }
+  }, [language])
 
   useEffect(() => {
     const loadSecurityData = async () => {
@@ -61,8 +80,13 @@ export default function SecuritySafety() {
             })
           }
         }
+        
+        // Wait 2 seconds after data is updated before hiding loading
+        await new Promise((resolve) => setTimeout(resolve, 2000))
       } catch (e) {
         setError("Could not fetch security data")
+        // Wait 2 seconds even on error
+        await new Promise((resolve) => setTimeout(resolve, 2000))
       } finally {
         setLoading(false)
       }
@@ -77,32 +101,32 @@ export default function SecuritySafety() {
   const statusItems = data
     ? [
         {
-          title: data.pir > 0 ? "Motion Detected" : "No Motion",
-          subtitle: data.pir > 0 ? "PIR sensor active" : "Acre secured",
+          title: data.pir > 0 ? getTranslation("security.motion", currentLanguage) : getTranslation("security.noMotion", currentLanguage),
+          subtitle: data.pir > 0 ? getTranslation("security.pirActive", currentLanguage) : getTranslation("security.acreSecured", currentLanguage),
           icon: data.pir > 0 ? AlertTriangle : Shield,
           status: data.pir > 0 ? "warning" : "safe",
         },
         {
-          title: data.flame > 0 ? "Flame Detected!" : "All Clear",
-          subtitle: data.flame > 0 ? "Fire risk detected" : "No risk detected",
+          title: data.flame > 0 ? getTranslation("security.flame", currentLanguage) : getTranslation("security.safe", currentLanguage),
+          subtitle: data.flame > 0 ? getTranslation("security.flameDetected", currentLanguage) : getTranslation("security.noRisk", currentLanguage),
           icon: data.flame > 0 ? Flame : Shield,
           status: data.flame > 0 ? "critical" : "safe",
         },
       ]
     : [
-        {
-          title: "No Motion",
-          subtitle: "Acre secured",
-          icon: Shield,
+    {
+      title: getTranslation("security.noMotion", currentLanguage),
+      subtitle: getTranslation("security.acreSecured", currentLanguage),
+      icon: Shield,
           status: "safe" as const,
-        },
-        {
-          title: "All Clear",
-          subtitle: "No risk detected",
-          icon: Shield,
+    },
+    {
+      title: getTranslation("security.safe", currentLanguage),
+      subtitle: getTranslation("security.noRisk", currentLanguage),
+      icon: Shield,
           status: "safe" as const,
-        },
-      ]
+    },
+  ]
 
   const getStatusColor = (status: string) => {
     if (status === "critical") return "bg-destructive"
@@ -118,8 +142,8 @@ export default function SecuritySafety() {
       className="bg-gradient-to-br from-card via-card/50 to-card border border-border/50 rounded-xl p-6 shadow-lg hover:shadow-xl transition-shadow duration-300"
     >
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-foreground mb-2">Security & Safety</h2>
-        <p className="text-xs text-muted-foreground">Farm protection status</p>
+        <h2 className="text-2xl font-bold text-foreground mb-2">{getTranslation("security.title", currentLanguage)}</h2>
+        <p className="text-xs text-muted-foreground">{getTranslation("security.description", currentLanguage)}</p>
       </div>
 
       {error ? (
@@ -129,16 +153,16 @@ export default function SecuritySafety() {
       ) : (
         <div className="space-y-4">
           {statusItems.map((item, idx) => {
-            const Icon = item.icon
-            return (
-              <motion.div
+          const Icon = item.icon
+          return (
+            <motion.div
                 key={idx}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: idx * 0.1 }}
                 whileHover={{ scale: 1.02, x: 4 }}
                 className="flex items-center gap-4 p-5 bg-gradient-to-r from-muted/50 to-muted/30 rounded-xl border border-border/50 hover:border-border transition-all duration-300 shadow-sm hover:shadow-md"
-              >
+            >
                 <motion.div
                   className={`w-12 h-12 rounded-xl ${getStatusColor(item.status)} flex items-center justify-center shadow-lg`}
                   animate={{ 
@@ -155,7 +179,7 @@ export default function SecuritySafety() {
                 <div className="flex-1">
                   <p className="font-semibold text-foreground text-base">{item.title}</p>
                   <p className="text-xs text-muted-foreground mt-1">{item.subtitle}</p>
-                </div>
+              </div>
                 <motion.div
                   className={`w-3 h-3 rounded-full ${getStatusColor(item.status)}`}
                   animate={{ 
@@ -168,10 +192,10 @@ export default function SecuritySafety() {
                     ease: "easeInOut"
                   }}
                 />
-              </motion.div>
-            )
-          })}
-        </div>
+            </motion.div>
+          )
+        })}
+      </div>
       )}
     </motion.section>
   )

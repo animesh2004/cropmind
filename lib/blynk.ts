@@ -6,6 +6,7 @@
  * V2 - Flame Sensor
  * V3 - Temperature
  * V4 - Humidity
+ * V8 - pH Sensor
  */
 
 const BLYNK_SERVER = process.env.BLYNK_SERVER || "blynk.cloud"
@@ -52,12 +53,13 @@ export async function fetchBlynkSensors(token: string) {
   }
 
   try {
-    const [soilMoisture, pir, flame, temperature, humidity] = await Promise.all([
+    const [soilMoisture, pir, flame, temperature, humidity, ph] = await Promise.all([
       fetchBlynkPin(token, "V0"), // Soil Moisture
       fetchBlynkPin(token, "V1"), // PIR
       fetchBlynkPin(token, "V2"), // Flame
       fetchBlynkPin(token, "V3"), // Temperature
       fetchBlynkPin(token, "V4"), // Humidity
+      fetchBlynkPin(token, "V8"), // pH Sensor
     ])
 
     return {
@@ -66,6 +68,7 @@ export async function fetchBlynkSensors(token: string) {
       flame: typeof flame?.value === "number" ? Number(flame.value) : 0,
       temperature: typeof temperature?.value === "number" ? temperature.value : 0,
       humidity: typeof humidity?.value === "number" ? humidity.value : 0,
+      ph: typeof ph?.value === "number" ? parseFloat(ph.value.toString()) : parseFloat("6.8"), // pH as float, default to 6.8 if not available
       timestamp: new Date().toISOString(),
     }
   } catch (error) {

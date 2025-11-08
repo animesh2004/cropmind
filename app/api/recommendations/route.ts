@@ -20,7 +20,53 @@ export async function POST(request: Request) {
 
     const input = { moisture, temperature, humidity }
 
-    // Try Kaggle AI API first
+    // Try dataset-based recommendations first (most accurate)
+    try {
+      const datasetResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/dataset/recommend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          temperature,
+          humidity,
+          moisture,
+        }),
+      })
+
+      if (datasetResponse.ok) {
+        const datasetData = await datasetResponse.json()
+        if (datasetData.recommendations && datasetData.recommendations.length > 0) {
+          const topRecommendation = datasetData.recommendations[0]
+          
+          // Convert dataset recommendations to format expected by frontend
+          const recommendations: string[] = []
+          recommendations.push(`✅ Recommended Crop: ${topRecommendation.crop}`)
+          recommendations.push(`🌱 Recommended Fertilizer: ${topRecommendation.fertilizer}`)
+          recommendations.push(`🌍 Recommended Soil Type: ${topRecommendation.soilType}`)
+          recommendations.push(`📊 Confidence: ${Math.round(topRecommendation.confidence * 100)}% (based on ${datasetData.totalMatches} matching records)`)
+          
+          if (datasetData.recommendations.length > 1) {
+            recommendations.push(`\n💡 Alternative Recommendations:`)
+            datasetData.recommendations.slice(1, 4).forEach((rec: any, idx: number) => {
+              recommendations.push(`${idx + 2}. ${rec.crop} with ${rec.fertilizer} (${rec.soilType} soil)`)
+            })
+          }
+
+          return NextResponse.json({
+            recommendations,
+            confidence: topRecommendation.confidence,
+            source: "dataset",
+            crop: topRecommendation.crop,
+            fertilizer: topRecommendation.fertilizer,
+            soilType: topRecommendation.soilType,
+            matchCount: topRecommendation.matchCount,
+          })
+        }
+      }
+    } catch (error) {
+      console.log("Dataset recommendation failed, falling back to other methods:", error)
+    }
+
+    // Try Kaggle AI API as fallback
     const kaggleResult = await getKaggleRecommendations(input)
 
     if (kaggleResult && kaggleResult.recommendations.length > 0) {

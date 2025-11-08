@@ -9,7 +9,7 @@ import HistoricalData from "./sections/historical-data"
 import { monitoringService } from "@/lib/monitoring-service"
 import { requestNotificationPermission } from "@/lib/notifications"
 
-export default function Dashboard() {
+export default function Dashboard({ language = "en" }: { language?: string }) {
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
@@ -54,11 +54,11 @@ export default function Dashboard() {
   return (
     <motion.main variants={containerVariants} initial="hidden" animate="visible" className="px-6 pt-8 pb-0 min-h-screen">
       <div className="max-w-7xl mx-auto space-y-6">
-        <EnvironmentalMonitoring />
-        <PersonalizedRecommendations />
+        <EnvironmentalMonitoring language={language} />
+        <PersonalizedRecommendations language={language} />
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          <SecuritySafety />
-          <HistoricalData />
+          <SecuritySafety language={language} />
+          <HistoricalData language={language} />
         </div>
       </div>
     </motion.main>

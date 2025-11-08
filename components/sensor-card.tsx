@@ -3,15 +3,18 @@
 import { motion } from "framer-motion"
 import type { LucideIcon } from "lucide-react"
 
+import { getTranslation } from "@/lib/translations"
+
 interface SensorCardProps {
   title: string
   value: string
   unit: string
   icon: LucideIcon
   status: "optimal" | "warning" | "critical"
+  language?: string
 }
 
-export default function SensorCard({ title, value, unit, icon: Icon, status }: SensorCardProps) {
+export default function SensorCard({ title, value, unit, icon: Icon, status, language = "en" }: SensorCardProps) {
   const statusColors = {
     optimal: "text-primary",
     warning: "text-amber-500",
@@ -88,7 +91,9 @@ export default function SensorCard({ title, value, unit, icon: Icon, status }: S
               ease: "easeInOut"
             }}
           />
-          <span className="text-xs text-muted-foreground capitalize">{status}</span>
+          <span className="text-xs text-muted-foreground capitalize">
+            {getTranslation(`sensor.status.${status}`, language)}
+          </span>
         </div>
       </div>
     </motion.div>

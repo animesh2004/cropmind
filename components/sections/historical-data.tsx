@@ -4,15 +4,34 @@ import { useEffect, useState } from "react"
 import { motion } from "framer-motion"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts"
 import { Button } from "@/components/ui/button"
+import { getTranslation } from "@/lib/translations"
 
 type Period = "1Day" | "1Week" | "1Month"
 
-export default function HistoricalData() {
+export default function HistoricalData({ language = "en" }: { language?: string }) {
   const [activePeriod, setActivePeriod] = useState<Period>("1Week")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<Array<Record<string, number | string>>>([])
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [currentLanguage, setCurrentLanguage] = useState(language)
+
+  useEffect(() => {
+    // Update current language when prop changes
+    setCurrentLanguage(language)
+
+    // Listen for language changes from profile
+    const handleLanguageChange = (event: CustomEvent) => {
+      const newLang = (event as CustomEvent<{ language: string }>).detail.language
+      setCurrentLanguage(newLang)
+    }
+
+    window.addEventListener("languageChanged", handleLanguageChange as EventListener)
+
+    return () => {
+      window.removeEventListener("languageChanged", handleLanguageChange as EventListener)
+    }
+  }, [language])
 
   useEffect(() => {
     const load = async () => {
@@ -28,8 +47,13 @@ export default function HistoricalData() {
         const json = (await res.json()) as { period: Period; data: Array<Record<string, number | string>>; timestamp?: string }
         setData(json.data)
         setLastUpdated(new Date(json.timestamp || Date.now()))
+        
+        // Wait 2 seconds after data is updated before hiding loading
+        await new Promise((resolve) => setTimeout(resolve, 2000))
       } catch (e) {
         setError("Could not fetch history data")
+        // Wait 2 seconds even on error
+        await new Promise((resolve) => setTimeout(resolve, 2000))
       } finally {
         setLoading(false)
       }
@@ -50,8 +74,8 @@ export default function HistoricalData() {
     >
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-bold text-foreground mb-1">Environmental Graph</h2>
-          <p className="text-xs text-muted-foreground">Historical trends and patterns</p>
+          <h2 className="text-2xl font-bold text-foreground mb-1">{getTranslation("graph.title", currentLanguage)}</h2>
+          <p className="text-xs text-muted-foreground">{getTranslation("graph.description", currentLanguage)}</p>
         </div>
         <div className="flex gap-2">
           {(["1Day", "1Week", "1Month"] as const).map((period) => (
@@ -61,17 +85,17 @@ export default function HistoricalData() {
               whileTap={{ scale: 0.95 }}
             >
               <Button
-                onClick={() => setActivePeriod(period)}
-                variant={activePeriod === period ? "default" : "outline"}
-                size="sm"
+              onClick={() => setActivePeriod(period)}
+              variant={activePeriod === period ? "default" : "outline"}
+              size="sm"
                 className={`font-medium transition-all ${
                   activePeriod === period 
                     ? "shadow-lg" 
                     : "hover:bg-muted/50"
                 }`}
-              >
-                {period === "1Day" ? "1 Day" : period === "1Week" ? "1 Week" : "1 Month"}
-              </Button>
+            >
+              {period === "1Day" ? getTranslation("graph.period.1Day", currentLanguage) : period === "1Week" ? getTranslation("graph.period.1Week", currentLanguage) : getTranslation("graph.period.1Month", currentLanguage)}
+            </Button>
             </motion.div>
           ))}
         </div>
@@ -91,12 +115,12 @@ export default function HistoricalData() {
                 transition={{ duration: 1.5, repeat: Number.POSITIVE_INFINITY }}
               />
               <p className="text-xs text-muted-foreground font-medium">
-                Live updating every 15 seconds
+                {getTranslation("graph.liveUpdating", currentLanguage)}
               </p>
             </div>
             {data.length > 0 && lastUpdated && (
               <p className="text-xs text-muted-foreground">
-                Updated: {lastUpdated.toLocaleTimeString()}
+                {getTranslation("graph.updated", currentLanguage)}: {lastUpdated.toLocaleTimeString()}
               </p>
             )}
           </div>
@@ -114,49 +138,49 @@ export default function HistoricalData() {
                 style={{ fontSize: "11px" }}
                 tick={{ fill: "#6B7280" }}
               />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "#FFFFFF",
-                  border: "1px solid #E5E7EB",
+          <Tooltip
+            contentStyle={{
+              backgroundColor: "#FFFFFF",
+              border: "1px solid #E5E7EB",
                   borderRadius: "0.75rem",
                   boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-                }}
+            }}
                 labelStyle={{ color: "#1E1E1E", fontWeight: 600 }}
                 itemStyle={{ color: "#1E1E1E" }}
-              />
+          />
               <Legend 
                 wrapperStyle={{ paddingTop: "20px" }}
                 iconType="line"
               />
-              <Line
-                type="monotone"
-                dataKey="temp"
-                stroke="#5BB462"
+          <Line
+            type="monotone"
+            dataKey="temp"
+            stroke="#5BB462"
                 strokeWidth={3}
-                name="Temperature (°C)"
+            name="Temperature (°C)"
                 dot={{ fill: "#5BB462", r: 4, strokeWidth: 2, stroke: "#fff" }}
                 activeDot={{ r: 7, stroke: "#5BB462", strokeWidth: 2 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="moisture"
-                stroke="#FFC94A"
+          />
+          <Line
+            type="monotone"
+            dataKey="moisture"
+            stroke="#FFC94A"
                 strokeWidth={3}
-                name="Moisture (%)"
+            name="Moisture (%)"
                 dot={{ fill: "#FFC94A", r: 4, strokeWidth: 2, stroke: "#fff" }}
                 activeDot={{ r: 7, stroke: "#FFC94A", strokeWidth: 2 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="humidity"
-                stroke="#3B82F6"
+          />
+          <Line
+            type="monotone"
+            dataKey="humidity"
+            stroke="#3B82F6"
                 strokeWidth={3}
-                name="Humidity (%)"
+            name="Humidity (%)"
                 dot={{ fill: "#3B82F6", r: 4, strokeWidth: 2, stroke: "#fff" }}
                 activeDot={{ r: 7, stroke: "#3B82F6", strokeWidth: 2 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          />
+        </LineChart>
+      </ResponsiveContainer>
         </div>
       ) : null}
     </motion.section>

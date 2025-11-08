@@ -77,7 +77,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // Validate pin format (V0-V4 for our sensors)
+    // Validate pin format (V0-V8 for our sensors)
     if (!/^V[0-9]+$/.test(normalizedPin)) {
       return NextResponse.json(
         { error: "Invalid pin format", received: pin, normalized: normalizedPin },

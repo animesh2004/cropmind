@@ -123,6 +123,10 @@ class MonitoringService {
     }
   }
 
+  private lastCriticalMoistureAlert: number = 0
+  private lastCriticalTempAlert: number = 0
+  private criticalAlertCooldown = 60000 // 1 minute cooldown for critical alerts
+
   /**
    * Check for instant alerts (fire and animal)
    */
@@ -147,13 +151,78 @@ class MonitoringService {
       }
     }
 
-    // Check for critical conditions
-    if (data.soilMoisture < 30 || data.temperature > 35 || data.temperature < 5) {
-      const alert = formatAlertMessage("critical", {
-        sensor: data.soilMoisture < 30 ? "Soil Moisture" : "Temperature",
-        value: data.soilMoisture < 30 ? `${data.soilMoisture}%` : `${data.temperature}°C`,
-      })
-      await this.triggerAlert(alert, true)
+    // CRITICAL: Zero or negative soil moisture - IMPOSSIBLE for plant growth
+    if (data.soilMoisture <= 0) {
+      if (now - this.lastCriticalMoistureAlert > this.criticalAlertCooldown) {
+        this.lastCriticalMoistureAlert = now
+        showBrowserNotification({
+          title: "🚨 CRITICAL ALERT: Zero Soil Moisture",
+          body: "Soil moisture is 0% - This is impossible for plant growth! Check sensor immediately. No crop can survive without water. Immediate irrigation required if reading is accurate.",
+          urgent: true,
+          tag: "critical-moisture-zero",
+        })
+      }
+    }
+    // CRITICAL: Extremely low soil moisture (< 5%)
+    else if (data.soilMoisture < 5) {
+      if (now - this.lastCriticalMoistureAlert > this.criticalAlertCooldown) {
+        this.lastCriticalMoistureAlert = now
+        showBrowserNotification({
+          title: "🚨 CRITICAL: Critically Low Soil Moisture",
+          body: `Soil moisture is critically low (${data.soilMoisture.toFixed(1)}%). Plants cannot survive at this level. Immediate irrigation required within 1 hour to prevent crop failure.`,
+          urgent: true,
+          tag: "critical-moisture-low",
+        })
+      }
+    }
+    // WARNING: Very low soil moisture (< 20%)
+    else if (data.soilMoisture < 20) {
+      if (now - this.lastCriticalMoistureAlert > this.criticalAlertCooldown) {
+        this.lastCriticalMoistureAlert = now
+        showBrowserNotification({
+          title: "⚠️ WARNING: Very Low Soil Moisture",
+          body: `Soil moisture is very low (${data.soilMoisture.toFixed(1)}%). Most crops need 30-40% minimum. Schedule irrigation within 2-4 hours to prevent crop stress.`,
+          urgent: false,
+          tag: "warning-moisture-low",
+        })
+      }
+    }
+
+    // CRITICAL: Extreme temperatures (outside survival range)
+    if (data.temperature > 50 || data.temperature < -10) {
+      if (now - this.lastCriticalTempAlert > this.criticalAlertCooldown) {
+        this.lastCriticalTempAlert = now
+        showBrowserNotification({
+          title: "🚨 CRITICAL: Extreme Temperature",
+          body: `Extreme temperature (${data.temperature.toFixed(1)}°C) detected. This is outside survival range for all crops. Please verify your temperature sensor is functioning correctly.`,
+          urgent: true,
+          tag: "critical-temp-extreme",
+        })
+      }
+    }
+    // CRITICAL: Freezing temperatures
+    else if (data.temperature < 0) {
+      if (now - this.lastCriticalTempAlert > this.criticalAlertCooldown) {
+        this.lastCriticalTempAlert = now
+        showBrowserNotification({
+          title: "🚨 CRITICAL: Freezing Temperature",
+          body: `Freezing temperature (${data.temperature.toFixed(1)}°C) detected. Most crops cannot survive freezing conditions. Immediate protective measures required: use row covers, greenhouse protection, or consider cold-tolerant varieties.`,
+          urgent: true,
+          tag: "critical-temp-freezing",
+        })
+      }
+    }
+    // CRITICAL: Extreme heat
+    else if (data.temperature > 45) {
+      if (now - this.lastCriticalTempAlert > this.criticalAlertCooldown) {
+        this.lastCriticalTempAlert = now
+        showBrowserNotification({
+          title: "🚨 CRITICAL: Extreme Heat",
+          body: `Extreme heat (${data.temperature.toFixed(1)}°C) will cause severe crop damage. Implement emergency cooling measures: shade nets, increased irrigation frequency (3-4 times daily), and consider heat-tolerant crop varieties only.`,
+          urgent: true,
+          tag: "critical-temp-heat",
+        })
+      }
     }
   }
 

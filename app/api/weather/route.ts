@@ -29,8 +29,13 @@ export async function GET(request: NextRequest) {
     // Step 1: Get location key from location name
     if (location) {
       try {
-        const locationUrl = `http://dataservice.accuweather.com/locations/v1/cities/search?apikey=${apiKey}&q=${encodeURIComponent(location)}`
-        const locationRes = await fetch(locationUrl)
+        const locationUrl = `https://dataservice.accuweather.com/locations/v1/cities/search?apikey=${apiKey}&q=${encodeURIComponent(location)}`
+        const locationRes = await fetch(locationUrl, {
+          cache: "no-store",
+          headers: {
+            "User-Agent": "CropMind/1.0",
+          },
+        })
         
         if (locationRes.ok) {
           const locationData = await locationRes.json()
@@ -47,8 +52,13 @@ export async function GET(request: NextRequest) {
     // Step 2: If we have lat/lon, try to get location key from coordinates
     if (!locationKey && lat && lon) {
       try {
-        const geoUrl = `http://dataservice.accuweather.com/locations/v1/cities/geoposition/search?apikey=${apiKey}&q=${lat},${lon}`
-        const geoRes = await fetch(geoUrl)
+        const geoUrl = `https://dataservice.accuweather.com/locations/v1/cities/geoposition/search?apikey=${apiKey}&q=${lat},${lon}`
+        const geoRes = await fetch(geoUrl, {
+          cache: "no-store",
+          headers: {
+            "User-Agent": "CropMind/1.0",
+          },
+        })
         
         if (geoRes.ok) {
           const geoData = await geoRes.json()
@@ -65,8 +75,13 @@ export async function GET(request: NextRequest) {
     // Step 3: If still no location key, try default (Delhi)
     if (!locationKey) {
       try {
-        const defaultUrl = `http://dataservice.accuweather.com/locations/v1/cities/search?apikey=${apiKey}&q=Delhi,IN`
-        const defaultRes = await fetch(defaultUrl)
+        const defaultUrl = `https://dataservice.accuweather.com/locations/v1/cities/search?apikey=${apiKey}&q=Delhi,IN`
+        const defaultRes = await fetch(defaultUrl, {
+          cache: "no-store",
+          headers: {
+            "User-Agent": "CropMind/1.0",
+          },
+        })
         
         if (defaultRes.ok) {
           const defaultData = await defaultRes.json()
@@ -96,8 +111,13 @@ export async function GET(request: NextRequest) {
       })
     }
     
-    const conditionsUrl = `http://dataservice.accuweather.com/currentconditions/v1/${locationKey}?apikey=${apiKey}&details=true`
-    const response = await fetch(conditionsUrl)
+    const conditionsUrl = `https://dataservice.accuweather.com/currentconditions/v1/${locationKey}?apikey=${apiKey}&details=true`
+    const response = await fetch(conditionsUrl, {
+      cache: "no-store",
+      headers: {
+        "User-Agent": "CropMind/1.0",
+      },
+    })
     
     if (!response.ok) {
       // Log error for debugging

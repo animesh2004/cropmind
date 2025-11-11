@@ -23,15 +23,31 @@ export async function fetchBlynkPin(token: string, pin: string): Promise<BlynkPi
 
   try {
     const url = `https://${BLYNK_SERVER}/external/api/get?token=${encodeURIComponent(token)}&${pin}`
+    
+    // Create abort controller for timeout (compatible with all Node versions)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+    
     const response = await fetch(url, {
       cache: "no-store",
+      next: { revalidate: 0 }, // Always fetch fresh data
       headers: {
         "User-Agent": "CropMind/1.0",
+        "Accept": "text/plain, application/json",
       },
+      signal: controller.signal,
     })
+    
+    clearTimeout(timeoutId)
 
     if (!response.ok) {
-      throw new Error(`Blynk API error: ${response.status}`)
+      const errorText = await response.text().catch(() => "")
+      console.error(`Blynk API error for pin ${pin}:`, {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText,
+      })
+      throw new Error(`Blynk API error: ${response.status} ${response.statusText}`)
     }
 
     const value = await response.text()
@@ -42,7 +58,12 @@ export async function fetchBlynkPin(token: string, pin: string): Promise<BlynkPi
       timestamp: Date.now(),
     }
   } catch (error) {
-    console.error(`Error fetching Blynk pin ${pin}:`, error)
+    // Handle timeout and network errors gracefully
+    if (error instanceof Error && error.name === "AbortError") {
+      console.error(`Blynk API timeout for pin ${pin}`)
+    } else {
+      console.error(`Error fetching Blynk pin ${pin}:`, error)
+    }
     return null
   }
 }
@@ -53,7 +74,8 @@ export async function fetchBlynkSensors(token: string) {
   }
 
   try {
-    const [soilMoisture, pir, flame, temperature, humidity, ph] = await Promise.all([
+    // Fetch all pins in parallel with individual error handling
+    const [soilMoisture, pir, flame, temperature, humidity, ph] = await Promise.allSettled([
       fetchBlynkPin(token, "V0"), // Soil Moisture
       fetchBlynkPin(token, "V1"), // PIR
       fetchBlynkPin(token, "V2"), // Flame
@@ -62,15 +84,36 @@ export async function fetchBlynkSensors(token: string) {
       fetchBlynkPin(token, "V8"), // pH Sensor
     ])
 
-    return {
-      soilMoisture: typeof soilMoisture?.value === "number" ? soilMoisture.value : 0,
-      pir: typeof pir?.value === "number" ? Number(pir.value) : 0,
-      flame: typeof flame?.value === "number" ? Number(flame.value) : 0,
-      temperature: typeof temperature?.value === "number" ? temperature.value : 0,
-      humidity: typeof humidity?.value === "number" ? humidity.value : 0,
-      ph: typeof ph?.value === "number" ? parseFloat(ph.value.toString()) : parseFloat("6.8"), // pH as float, default to 6.8 if not available
+    // Extract values, handling both fulfilled and rejected promises
+    const getValue = (result: PromiseSettledResult<BlynkPinData | null>, defaultValue: number = 0) => {
+      if (result.status === "fulfilled" && result.value) {
+        const val = result.value.value
+        return typeof val === "number" ? val : defaultValue
+      }
+      return defaultValue
+    }
+
+    const result = {
+      soilMoisture: getValue(soilMoisture, 0),
+      pir: getValue(pir, 0),
+      flame: getValue(flame, 0),
+      temperature: getValue(temperature, 0),
+      humidity: getValue(humidity, 0),
+      ph: ph.status === "fulfilled" && ph.value 
+        ? (typeof ph.value.value === "number" ? parseFloat(ph.value.value.toString()) : 6.8)
+        : 6.8,
       timestamp: new Date().toISOString(),
     }
+
+    // Check if we got at least some valid data (at least one sensor reading)
+    const hasValidData = result.soilMoisture > 0 || result.temperature > 0 || result.humidity > 0
+    
+    if (!hasValidData) {
+      console.warn("All Blynk sensor readings returned zero or null")
+      return null
+    }
+
+    return result
   } catch (error) {
     console.error("Error fetching Blynk sensors:", error)
     return null

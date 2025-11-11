@@ -21,50 +21,73 @@ export async function GET(request: Request) {
       })
     }
 
-    // Try to get data from webhook storage first (real-time)
-    const webhookData = blynkStorage.getSensorData(token)
+    // In production/serverless environments, webhook storage may not persist
+    // So we prioritize direct polling, but check webhook storage as a bonus
+    let webhookData = null
+    try {
+      webhookData = blynkStorage.getSensorData(token)
+    } catch (error) {
+      // Webhook storage might not be available in serverless - that's okay
+      console.log("Webhook storage not available, using polling")
+    }
 
-    if (webhookData) {
+    // Always try polling first (more reliable in production)
+    let blynkData = null
+    try {
+      blynkData = await fetchBlynkSensors(token)
+    } catch (error) {
+      console.error("Error fetching from Blynk:", error)
+    }
+
+    // Use webhook data if available and recent, otherwise use polling data
+    if (webhookData && webhookData.source === "webhook") {
+      // Check if webhook data is recent (within last 2 minutes)
+      const dataAge = Date.now() - new Date(webhookData.timestamp).getTime()
+      if (dataAge < 120000) { // 2 minutes
+        return NextResponse.json({
+          timestamp: webhookData.timestamp,
+          soilMoisture: webhookData.soilMoisture,
+          temperature: webhookData.temperature,
+          humidity: webhookData.humidity,
+          ph: webhookData.ph,
+          pir: webhookData.pir,
+          flame: webhookData.flame,
+          status: "ok",
+          source: "webhook",
+        })
+      }
+    }
+
+    // Use polling data if available
+    if (blynkData) {
+      const ph = blynkData.ph || 6.8
       return NextResponse.json({
-        timestamp: webhookData.timestamp,
-        soilMoisture: webhookData.soilMoisture,
-        temperature: webhookData.temperature,
-        humidity: webhookData.humidity,
-        ph: webhookData.ph,
-        pir: webhookData.pir,
-        flame: webhookData.flame,
+        timestamp: blynkData.timestamp,
+        soilMoisture: blynkData.soilMoisture,
+        temperature: blynkData.temperature,
+        humidity: blynkData.humidity,
+        ph: ph,
+        pir: blynkData.pir,
+        flame: blynkData.flame,
         status: "ok",
-        source: "webhook",
+        source: "polling",
       })
     }
 
-    // Fallback to polling if webhook data not available
-    const blynkData = await fetchBlynkSensors(token)
-
-    if (!blynkData) {
-      return NextResponse.json(
-        { error: "Failed to fetch data from Blynk. Please check your token or configure webhooks." },
-        { status: 500 }
-      )
-    }
-
-    // Use pH value from Blynk (V8 pin)
-    const ph = blynkData.ph || 6.8
-
-    return NextResponse.json({
-      timestamp: blynkData.timestamp,
-      soilMoisture: blynkData.soilMoisture,
-      temperature: blynkData.temperature,
-      humidity: blynkData.humidity,
-      ph: ph,
-      pir: blynkData.pir,
-      flame: blynkData.flame,
-      status: "ok",
-      source: "polling",
-    })
+    // If both fail, return error with helpful message
+    return NextResponse.json(
+      { 
+        error: "Failed to fetch data from Blynk. Please check your token and ensure Blynk device is online.",
+        hint: "Make sure your Blynk token is correct and your IoT device is connected to Blynk cloud."
+      },
+      { status: 500 }
+    )
   } catch (error) {
     console.error("Error in sensors API:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    return NextResponse.json({ 
+      error: "Internal server error",
+      details: error instanceof Error ? error.message : String(error)
+    }, { status: 500 })
   }
 }
 

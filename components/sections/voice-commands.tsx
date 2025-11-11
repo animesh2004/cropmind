@@ -271,19 +271,23 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
     // What is CropMind / CropMind क्या है
     if (lowerQ.includes("cropmind") || lowerQ.includes("क्रॉपमाइंड") || 
         lowerQ.includes("यह क्या है") || lowerQ.includes("what is this") ||
-        lowerQ.includes("क्या है यह") || lowerQ.includes("क्या करता है")) {
+        lowerQ.includes("what is cropmind") || lowerQ.includes("what is crop mind") ||
+        lowerQ.includes("क्या है यह") || lowerQ.includes("क्या करता है") ||
+        lowerQ.includes("tell me about cropmind") || lowerQ.includes("cropmind के बारे में")) {
       return lang === "hi"
-        ? "CropMind एक स्मार्ट कृषि डैशबोर्ड है जो आपको वास्तविक समय में मिट्टी की नमी, तापमान, आर्द्रता, और पी एच जैसे पर्यावरणीय मानों की निगरानी करने में मदद करता है। यह AI-संचालित फसल सिफारिशें, मौसम जानकारी, और सुरक्षा अलर्ट भी प्रदान करता है।"
-        : "CropMind is a smart agriculture dashboard that helps you monitor environmental values like soil moisture, temperature, humidity, and pH in real-time. It also provides AI-powered crop recommendations, weather information, and security alerts."
+        ? "CropMind एक स्मार्ट कृषि डैशबोर्ड है जो आपको वास्तविक समय में मिट्टी की नमी, तापमान, आर्द्रता, और पी एच जैसे पर्यावरणीय मानों की निगरानी करने में मदद करता है। यह AI-संचालित फसल सिफारिशें, मौसम जानकारी, सुरक्षा अलर्ट, वॉइस कमांड, ऐतिहासिक डेटा विश्लेषण, और CSV डाउनलोड जैसी सुविधाएं प्रदान करता है। यह IoT सेंसर के साथ काम करता है और किसानों को बेहतर फसल प्रबंधन में मदद करता है।"
+        : "CropMind is a smart agriculture dashboard that helps you monitor environmental values like soil moisture, temperature, humidity, and pH in real-time. It provides features like AI-powered crop recommendations, weather information, security alerts, voice commands, historical data analysis, and CSV downloads. It works with IoT sensors and helps farmers with better crop management."
     }
     
     // How to use / कैसे उपयोग करें
     if (lowerQ.includes("how to use") || lowerQ.includes("कैसे उपयोग") || 
+        lowerQ.includes("how do i use") || lowerQ.includes("how to use cropmind") ||
         lowerQ.includes("कैसे इस्तेमाल") || lowerQ.includes("कैसे करें") ||
-        lowerQ.includes("how do i") || lowerQ.includes("कैसे")) {
+        lowerQ.includes("how do i") || lowerQ.includes("कैसे") ||
+        lowerQ.includes("usage") || lowerQ.includes("उपयोग")) {
       return lang === "hi"
-        ? "CropMind का उपयोग करने के लिए: 1) अपना Blynk टोकन प्रोफाइल में सेट करें, 2) पर्यावरण निगरानी सेक्शन में वास्तविक समय डेटा देखें, 3) AI सिफारिशें सेक्शन में फसल सुझाव प्राप्त करें, 4) वॉइस कमांड से किसी भी प्रश्न पूछें, 5) अलर्ट सेटिंग्स में अपनी सीमाएं सेट करें।"
-        : "To use CropMind: 1) Set your Blynk token in profile, 2) View real-time data in Environmental Monitoring section, 3) Get crop suggestions in AI Recommendations section, 4) Ask any question using Voice Commands, 5) Set your thresholds in Alert Settings."
+        ? "CropMind का उपयोग करने के लिए: 1) प्रोफाइल आइकन पर क्लिक करें और अपना Blynk टोकन सेट करें, 2) पर्यावरण निगरानी सेक्शन में वास्तविक समय सेंसर डेटा देखें, 3) AI सिफारिशें सेक्शन में फसल, उर्वरक, और सिंचाई सुझाव प्राप्त करें, 4) वॉइस कमांड से किसी भी प्रश्न पूछें जैसे 'मिट्टी की नमी क्या है', 5) अलर्ट सेटिंग्स में अपनी सीमाएं सेट करें, 6) ऐतिहासिक डेटा से रुझान देखें, 7) मौसम जानकारी जांचें।"
+        : "To use CropMind: 1) Click profile icon and set your Blynk token, 2) View real-time sensor data in Environmental Monitoring section, 3) Get crop, fertilizer, and irrigation suggestions in AI Recommendations section, 4) Ask any question using Voice Commands like 'What is soil moisture', 5) Set your thresholds in Alert Settings, 6) View trends from Historical Data, 7) Check weather information."
     }
     
     // What is soil moisture / मिट्टी की नमी क्या है
@@ -305,29 +309,34 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
     // Fertilizer questions / उर्वरक प्रश्न
     if (lowerQ.includes("fertilizer") || lowerQ.includes("उर्वरक") || 
         lowerQ.includes("खाद") || lowerQ.includes("कौन सा उर्वरक") ||
+        lowerQ.includes("which fertilizer") || lowerQ.includes("what fertilizer") ||
         lowerQ.includes("कब दें") || lowerQ.includes("when to apply")) {
       return lang === "hi"
-        ? "उर्वरक फसल के प्रकार और मिट्टी की स्थिति पर निर्भर करता है। NPK अनुपात नाइट्रोजन, फॉस्फोरस, और पोटैशियम को दर्शाता है। AI सिफारिशें सेक्शन में आपकी फसल के लिए सही उर्वरक सुझाव मिलेगा।"
-        : "Fertilizer depends on crop type and soil condition. NPK ratio indicates Nitrogen, Phosphorus, and Potassium. The AI Recommendations section will suggest the right fertilizer for your crop."
+        ? "उर्वरक फसल के प्रकार और मिट्टी की स्थिति पर निर्भर करता है। NPK अनुपात नाइट्रोजन, फॉस्फोरस, और पोटैशियम को दर्शाता है। AI सिफारिशें सेक्शन में आपकी फसल के लिए सही उर्वरक सुझाव मिलेगा। उदाहरण: गेहूं के लिए 80-40-40, चावल के लिए 100-50-50। मिट्टी की जांच के बाद उर्वरक लगाएं।"
+        : "Fertilizer depends on crop type and soil condition. NPK ratio indicates Nitrogen, Phosphorus, and Potassium. The AI Recommendations section will suggest the right fertilizer for your crop. Example: 80-40-40 for Wheat, 100-50-50 for Rice. Apply fertilizer after soil testing."
     }
     
     // Irrigation questions / सिंचाई प्रश्न
     if (lowerQ.includes("irrigation") || lowerQ.includes("सिंचाई") || 
         lowerQ.includes("कब पानी") || lowerQ.includes("when to water") ||
-        lowerQ.includes("कितना पानी") || lowerQ.includes("how much water")) {
+        lowerQ.includes("when should i water") || lowerQ.includes("when do i water") ||
+        lowerQ.includes("कितना पानी") || lowerQ.includes("how much water") ||
+        lowerQ.includes("watering time") || lowerQ.includes("पानी का समय")) {
       return lang === "hi"
-        ? "सिंचाई मिट्टी की नमी पर निर्भर करती है। यदि नमी 30 प्रतिशत से कम है, तो तुरंत पानी दें। सुबह 6-8 बजे सिंचाई करना सबसे अच्छा है। मौसम और फसल के प्रकार के अनुसार समय बदलता है।"
-        : "Irrigation depends on soil moisture. If moisture is below 30 percent, water immediately. Best time is 6-8 AM. Timing varies based on weather and crop type."
+        ? "सिंचाई मिट्टी की नमी पर निर्भर करती है। यदि नमी 30 प्रतिशत से कम है, तो तुरंत पानी दें। सुबह 6-8 बजे सिंचाई करना सबसे अच्छा है। मौसम और फसल के प्रकार के अनुसार समय बदलता है। गर्मी में दिन में दो बार, सर्दी में 2-3 दिन में एक बार। मिट्टी की नमी जांचते रहें।"
+        : "Irrigation depends on soil moisture. If moisture is below 30 percent, water immediately. Best time is 6-8 AM. Timing varies based on weather and crop type. In summer, water twice a day. In winter, once every 2-3 days. Keep checking soil moisture regularly."
     }
     
     // Historical data / ऐतिहासिक डेटा
     if (lowerQ.includes("history") || lowerQ.includes("historical") || 
         lowerQ.includes("ऐतिहासिक") || lowerQ.includes("पुराना डेटा") ||
         lowerQ.includes("graph") || lowerQ.includes("ग्राफ") ||
-        lowerQ.includes("trend") || lowerQ.includes("रुझान")) {
+        lowerQ.includes("trend") || lowerQ.includes("रुझान") ||
+        lowerQ.includes("how to view historical") || lowerQ.includes("view historical data") ||
+        lowerQ.includes("ऐतिहासिक डेटा कैसे देखें") || lowerQ.includes("पुराना डेटा देखें")) {
       return lang === "hi"
-        ? "ऐतिहासिक डेटा सेक्शन में आप 1 दिन, 1 सप्ताह, या 1 महीने का डेटा देख सकते हैं। आप CSV फॉर्मेट में डेटा डाउनलोड भी कर सकते हैं।"
-        : "In Historical Data section, you can view data for 1 day, 1 week, or 1 month. You can also download data in CSV format."
+        ? "ऐतिहासिक डेटा देखने के लिए: 1) डैशबोर्ड पर Historical Data सेक्शन खोलें, 2) 1 दिन, 1 सप्ताह, या 1 महीने का समय चुनें, 3) ग्राफ में मिट्टी की नमी, तापमान, आर्द्रता, और पी एच के रुझान देखें, 4) CSV डाउनलोड बटन से डेटा सेव करें। यह आपको फसल के पैटर्न समझने में मदद करता है।"
+        : "To view historical data: 1) Open Historical Data section on dashboard, 2) Select time period: 1 day, 1 week, or 1 month, 3) View trends of soil moisture, temperature, humidity, and pH in graphs, 4) Save data using CSV download button. This helps you understand crop patterns."
     }
     
     // Security questions / सुरक्षा प्रश्न
@@ -351,10 +360,13 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
     // Alert/Threshold questions / अलर्ट प्रश्न
     if (lowerQ.includes("alert") || lowerQ.includes("threshold") || 
         lowerQ.includes("अलर्ट") || lowerQ.includes("सीमा") ||
-        lowerQ.includes("beep") || lowerQ.includes("बीप")) {
+        lowerQ.includes("beep") || lowerQ.includes("बीप") ||
+        lowerQ.includes("how to set alert") || lowerQ.includes("set alerts") ||
+        lowerQ.includes("अलर्ट कैसे सेट करें") || lowerQ.includes("अलर्ट सेट करें") ||
+        lowerQ.includes("notification") || lowerQ.includes("सूचना")) {
       return lang === "hi"
-        ? "प्रोफाइल सेक्शन में अलर्ट थ्रेशोल्ड सेटिंग्स में आप मिट्टी की नमी, तापमान, आर्द्रता, और पी एच की सीमाएं सेट कर सकते हैं। ट्रिपल बीप अनिवार्य है, डबल और सिंगल बीप को चालू-बंद कर सकते हैं।"
-        : "In Profile section, Alert Threshold Settings let you set limits for soil moisture, temperature, humidity, and pH. Triple beep is compulsory, you can toggle double and single beep."
+        ? "अलर्ट सेट करने के लिए: 1) प्रोफाइल आइकन पर क्लिक करें, 2) Alert Threshold Settings खोलें, 3) मिट्टी की नमी, तापमान, आर्द्रता, और पी एच की न्यूनतम और अधिकतम सीमाएं सेट करें, 4) अलर्ट चालू करें, 5) बीप ध्वनि सेटिंग्स चुनें। ट्रिपल बीप आग और गंभीर अलर्ट के लिए अनिवार्य है।"
+        : "To set alerts: 1) Click profile icon, 2) Open Alert Threshold Settings, 3) Set minimum and maximum limits for soil moisture, temperature, humidity, and pH, 4) Enable alerts, 5) Choose beep sound settings. Triple beep is mandatory for fire and critical alerts."
     }
     
     // Language questions / भाषा प्रश्न
@@ -543,12 +555,15 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
       }
       window.dispatchEvent(new CustomEvent("voiceCommand", { detail: { command: "recommendation" } }))
     } 
-    // Status variations: स्थिति, हालत, कैसी है स्थिति, सब ठीक है, क्या सब ठीक है
+    // Status variations: स्थिति, हालत, कैसी है स्थिति, सब ठीक है, क्या सब ठीक है, is everything okay
     else if (lowerCommand.includes("status") || lowerCommand.includes("स्थिति") || lowerCommand.includes("condition") || 
              lowerCommand.includes("हालत") || lowerCommand.includes("कैसी है स्थिति") || lowerCommand.includes("सब ठीक है") ||
              lowerCommand.includes("क्या सब ठीक है") || lowerCommand.includes("स्थिति कैसी है") ||
              lowerCommand.includes("सब कुछ ठीक है") || lowerCommand.includes("क्या सब कुछ ठीक है") ||
-             lowerCommand.includes("क्या करना चाहिए") || lowerCommand.includes("सुझाव दो")) {
+             lowerCommand.includes("क्या करना चाहिए") || lowerCommand.includes("सुझाव दो") ||
+             lowerCommand.includes("is everything okay") || lowerCommand.includes("everything okay") ||
+             lowerCommand.includes("all okay") || lowerCommand.includes("all right") ||
+             lowerCommand.includes("सब ठीक") || lowerCommand.includes("क्या सब ठीक")) {
       // Overall status with actionable advice
       const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
       const response = getOverallStatus(sensorData, lang)

@@ -6,13 +6,14 @@ import { NextRequest, NextResponse } from "next/server"
  * Usage: /api/test-weather?location=Gorakhpur
  */
 export async function GET(request: NextRequest) {
-  const searchParams = request.nextUrl.searchParams
-  const location = searchParams.get("location") || "Gorakhpur"
-  const testResults: any = {
-    location,
-    timestamp: new Date().toISOString(),
-    tests: {},
-  }
+  try {
+    const searchParams = request.nextUrl.searchParams
+    const location = searchParams.get("location") || "Gorakhpur"
+    const testResults: any = {
+      location,
+      timestamp: new Date().toISOString(),
+      tests: {},
+    }
 
   // Get API keys
   const openWeatherKey = process.env.OPENWEATHER_API_KEY || process.env.NEXT_PUBLIC_OPENWEATHER_API_KEY || ""
@@ -211,8 +212,19 @@ export async function GET(request: NextRequest) {
       : "❌ Neither API is working - check API keys and configuration",
   }
 
-  return NextResponse.json(testResults, {
-    status: openWeatherSuccess || accuWeatherSuccess ? 200 : 500,
-  })
+    return NextResponse.json(testResults, {
+      status: openWeatherSuccess || accuWeatherSuccess ? 200 : 500,
+    })
+  } catch (error) {
+    console.error("Test weather API error:", error)
+    return NextResponse.json(
+      {
+        error: "Failed to run weather API tests",
+        details: error instanceof Error ? error.message : String(error),
+        timestamp: new Date().toISOString(),
+      },
+      { status: 500 }
+    )
+  }
 }
 

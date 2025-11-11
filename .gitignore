@@ -50,3 +50,7 @@ Thumbs.db
 # Lock files (optional - you may want to commit these)
 # package-lock.json
 # pnpm-lock.yaml
+
+# Environment variables
+.env.local
+.env*.local

@@ -139,11 +139,11 @@ export default function SecuritySafety({ language = "en" }: { language?: string 
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: "easeInOut", delay: 0.4 }}
-      className="bg-gradient-to-br from-card via-card/50 to-card border border-border/50 rounded-xl p-6 shadow-lg hover:shadow-xl transition-shadow duration-300"
+      className="bg-gradient-to-br from-card via-card/50 to-card border border-border/50 rounded-xl p-4 sm:p-6 shadow-lg hover:shadow-xl transition-shadow duration-300"
     >
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-foreground mb-2">{getTranslation("security.title", currentLanguage)}</h2>
-        <p className="text-xs text-muted-foreground">{getTranslation("security.description", currentLanguage)}</p>
+      <div className="mb-4 sm:mb-6">
+        <h2 className="text-xl sm:text-2xl font-bold text-foreground mb-2 break-words">{getTranslation("security.title", currentLanguage)}</h2>
+        <p className="text-xs text-muted-foreground break-words">{getTranslation("security.description", currentLanguage)}</p>
       </div>
 
       {error ? (

@@ -48,8 +48,8 @@ export async function GET(request: Request) {
       )
     }
 
-    // Calculate pH (placeholder - you may want to add a pH sensor or calculate from other factors)
-    const ph = 6.8
+    // Use pH value from Blynk (V8 pin)
+    const ph = blynkData.ph || 6.8
 
     return NextResponse.json({
       timestamp: blynkData.timestamp,

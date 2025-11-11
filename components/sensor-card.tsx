@@ -37,7 +37,7 @@ export default function SensorCard({ title, value, unit, icon: Icon, status, lan
     <motion.div
       whileHover={{ scale: 1.03, y: -8 }}
       whileTap={{ scale: 0.97 }}
-      className={`${bgColors[status]} border border-border/50 rounded-xl p-6 shadow-lg hover:shadow-xl transition-all duration-300 backdrop-blur-sm relative overflow-hidden`}
+      className={`${bgColors[status]} border border-border/50 rounded-xl p-4 sm:p-6 shadow-lg hover:shadow-xl transition-all duration-300 backdrop-blur-sm relative overflow-hidden`}
     >
       {/* Animated background gradient */}
       <motion.div
@@ -75,7 +75,21 @@ export default function SensorCard({ title, value, unit, icon: Icon, status, lan
             <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{unit}</div>
           </div>
         </div>
-        <h3 className="text-sm font-semibold text-foreground tracking-tight">{title}</h3>
+        <h3 className="text-sm font-semibold text-foreground tracking-tight break-words min-w-0">{title}</h3>
+        
+        {/* Progress bar for visual indication */}
+        {title.includes("Moisture") && (
+          <div className="mt-2 w-full bg-muted rounded-full h-2 overflow-hidden">
+            <motion.div
+              className={`h-full rounded-full ${
+                status === "optimal" ? "bg-primary" : status === "warning" ? "bg-amber-500" : "bg-destructive"
+              }`}
+              initial={{ width: 0 }}
+              animate={{ width: `${Math.min(100, Math.max(0, parseFloat(value)))}%` }}
+              transition={{ duration: 0.5 }}
+            />
+          </div>
+        )}
         
         {/* Status indicator dot */}
         <div className="mt-3 flex items-center gap-2">

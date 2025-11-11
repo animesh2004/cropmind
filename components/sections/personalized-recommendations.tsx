@@ -6,7 +6,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
-import { Droplet, Thermometer, Wind, Zap, CheckCircle2, TrendingUp } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Droplet, Thermometer, Wind, Zap, CheckCircle2, TrendingUp, Share2, MessageCircle, Facebook, Twitter, Mail } from "lucide-react"
 import { findBestCrop, getCropData, CROP_DATABASE } from "@/lib/crop-data"
 import { getTranslation } from "@/lib/translations"
 
@@ -100,14 +106,15 @@ export default function PersonalizedRecommendations({ language = "en" }: { langu
     // Listen for updates from environmental monitoring
     window.addEventListener("sensorDataUpdated", handleSensorUpdate as EventListener)
 
-    // Also refresh every 10 seconds to stay in sync
-    const interval = setInterval(fetchCurrentValues, 10000)
+    // Also refresh every 5 seconds to stay in sync
+    const interval = setInterval(fetchCurrentValues, 5000)
 
     return () => {
       clearInterval(interval)
       window.removeEventListener("sensorDataUpdated", handleSensorUpdate as EventListener)
     }
   }, [])
+
 
   // Validate conditions before getting recommendations
   const validateConditions = (moisture: number, temperature: number, humidity: number): { valid: boolean; message: string } => {
@@ -400,26 +407,27 @@ export default function PersonalizedRecommendations({ language = "en" }: { langu
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: "easeInOut", delay: 0.2 }}
-      className="bg-gradient-to-br from-card via-card/50 to-card border border-border/50 rounded-xl p-8 shadow-lg hover:shadow-xl transition-shadow duration-300"
+      className="bg-gradient-to-br from-card via-card/50 to-card border border-border/50 rounded-xl sm:rounded-2xl p-4 sm:p-6 md:p-8 shadow-lg hover:shadow-xl transition-shadow duration-300"
     >
-      <div className="mb-6">
-        <div className="flex items-center gap-3 mb-3">
+      <div className="mb-4 sm:mb-6">
+        <div className="flex items-center gap-2 sm:gap-3 mb-2 sm:mb-3">
           <motion.div
-            className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center"
+            className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center flex-shrink-0"
             animate={{ rotate: [0, 5, -5, 0] }}
             transition={{ duration: 3, repeat: Number.POSITIVE_INFINITY }}
           >
-            <TrendingUp className="w-6 h-6 text-primary" />
+            <TrendingUp className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
           </motion.div>
-          <h2 className="text-2xl font-bold text-foreground bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
+          <h2 className="text-xl sm:text-2xl font-bold text-foreground bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent break-words min-w-0">
             {getTranslation("recommendation.title", currentLanguage)}
           </h2>
         </div>
-        <p className="text-sm text-muted-foreground">{getTranslation("recommendation.description", currentLanguage)}</p>
+        <p className="text-xs sm:text-sm text-muted-foreground break-words mb-3">{getTranslation("recommendation.description", currentLanguage)}</p>
+        
       </div>
 
       {/* Input Conditions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
         <div className="relative">
           <label className="block text-sm font-medium text-foreground mb-2">{getTranslation("recommendation.input.soilMoisture", currentLanguage)}</label>
           <div className="relative">
@@ -449,12 +457,12 @@ export default function PersonalizedRecommendations({ language = "en" }: { langu
         <div className="relative">
           <label className="block text-sm font-medium text-foreground mb-2">{getTranslation("recommendation.input.humidity", currentLanguage)}</label>
           <div className="relative">
-            <Wind className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-green-500" />
+            <Wind className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-green-500 dark:text-green-400" />
           <Input
             type="number"
             value={values.humidity}
             onChange={(e) => setValues({ ...values, humidity: e.target.value })}
-              className="bg-input border-green-200 pl-10"
+              className="bg-input border-green-200 dark:border-green-700 pl-10"
             disabled
           />
           </div>
@@ -481,9 +489,9 @@ export default function PersonalizedRecommendations({ language = "en" }: { langu
           animate={{ opacity: 1, y: 0 }}
           className={`mb-4 p-4 rounded-lg text-sm ${
             error.includes("CRITICAL ALERT") || error.includes("impossible")
-              ? "bg-red-100 dark:bg-red-900/20 border-2 border-red-500 text-red-800 dark:text-red-200"
+              ? "bg-red-100 dark:bg-red-900/30 border-2 border-red-500 dark:border-red-400 text-red-800 dark:text-red-200"
               : error.includes("WARNING")
-                ? "bg-yellow-100 dark:bg-yellow-900/20 border-2 border-yellow-500 text-yellow-800 dark:text-yellow-200"
+                ? "bg-yellow-100 dark:bg-yellow-900/30 border-2 border-yellow-500 dark:border-yellow-400 text-yellow-800 dark:text-yellow-200"
                 : "bg-destructive/10 border border-destructive text-destructive"
           }`}
         >
@@ -513,33 +521,33 @@ export default function PersonalizedRecommendations({ language = "en" }: { langu
           className="space-y-6"
         >
           {/* Recommended Crop */}
-          <div className="flex items-center justify-between p-4 bg-primary/10 rounded-lg border border-primary/20">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center">
-                <CheckCircle2 className="w-6 h-6 text-primary-foreground" />
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 p-3 sm:p-4 bg-primary/10 rounded-lg border border-primary/20">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
+                <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6 text-primary-foreground" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">{getTranslation("recommendation.crop", currentLanguage)}</p>
-                <h3 className="text-2xl font-bold text-foreground">{recommendations.crop || "Wheat"}</h3>
+                <p className="text-xs sm:text-sm text-muted-foreground">{getTranslation("recommendation.crop", currentLanguage)}</p>
+                <h3 className="text-xl sm:text-2xl font-bold text-foreground">{recommendations.crop || "Wheat"}</h3>
               </div>
             </div>
             {recommendations.confidence && (
-              <Badge className="bg-green-500 text-white px-4 py-2 text-sm font-semibold">
+              <Badge className="bg-green-500 dark:bg-green-600 text-white px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-semibold w-fit">
                 {Math.round(recommendations.confidence * 100)}% {getTranslation("recommendation.confidenceLabel", currentLanguage)}
               </Badge>
             )}
           </div>
 
           {/* Detailed Parameters */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card className="bg-white border-2">
-              <CardContent className="p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <Card className="bg-card border-2 border-border">
+              <CardContent className="p-3 sm:p-4">
                 <p className="text-xs text-muted-foreground mb-1">{getTranslation("recommendation.soilType", currentLanguage)}</p>
                 <p className="text-lg font-semibold text-foreground">{recommendations.soilType || "Loamy Soil"}</p>
               </CardContent>
             </Card>
-            <Card className="bg-white border-2">
-              <CardContent className="p-4">
+            <Card className="bg-card border-2 border-border">
+              <CardContent className="p-3 sm:p-4">
                 <p className="text-xs text-muted-foreground mb-1">
                   {recommendations.fertilizer ? getTranslation("recommendation.fertilizerLabel", currentLanguage) : getTranslation("recommendation.npkRatioLabel", currentLanguage)}
                 </p>
@@ -553,17 +561,17 @@ export default function PersonalizedRecommendations({ language = "en" }: { langu
                 )}
               </CardContent>
             </Card>
-            <Card className="bg-white border-2">
-              <CardContent className="p-4">
+            <Card className="bg-card border-2 border-border">
+              <CardContent className="p-3 sm:p-4">
                 <p className="text-xs text-muted-foreground mb-1">{getTranslation("recommendation.irrigation", currentLanguage)}</p>
                 <p className="text-lg font-semibold text-foreground">{recommendations.irrigationSchedule || "Moderate - Every 2-3 days"}</p>
               </CardContent>
             </Card>
-            <Card className="bg-white border-2 border-green-500">
+            <Card className="bg-card border-2 border-green-500 dark:border-green-400">
               <CardContent className="p-4">
                 <p className="text-xs text-muted-foreground mb-1">{getTranslation("recommendation.conditionMatch", currentLanguage)}</p>
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5 text-green-500" />
+                  <CheckCircle2 className="w-5 h-5 text-green-500 dark:text-green-400" />
                   <p className="text-lg font-semibold text-foreground">{recommendations.conditionMatch || getTranslation("sensor.status.optimal", currentLanguage)}</p>
                 </div>
               </CardContent>
@@ -573,25 +581,96 @@ export default function PersonalizedRecommendations({ language = "en" }: { langu
           {/* Ideal Growing Conditions */}
           {recommendations.idealConditions && (
             <Card className="bg-muted/50 border-2">
-              <CardContent className="p-4">
-                <h4 className="text-lg font-semibold text-foreground mb-4">{getTranslation("recommendation.idealConditions", currentLanguage)}</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <CardContent className="p-3 sm:p-4">
+                <h4 className="text-base sm:text-lg font-semibold text-foreground mb-3 sm:mb-4">{getTranslation("recommendation.idealConditions", currentLanguage)}</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                   <div className="text-center">
                     <p className="text-xs text-muted-foreground mb-1">{getTranslation("sensor.soilMoisture", currentLanguage)}</p>
-                    <p className="text-xl font-bold text-foreground">{recommendations.idealConditions.moisture}</p>
+                    <p className="text-lg sm:text-xl font-bold text-foreground">{recommendations.idealConditions.moisture}</p>
                   </div>
                   <div className="text-center">
                     <p className="text-xs text-muted-foreground mb-1">{getTranslation("sensor.temperature", currentLanguage)}</p>
-                    <p className="text-xl font-bold text-foreground">{recommendations.idealConditions.temperature}</p>
+                    <p className="text-lg sm:text-xl font-bold text-foreground">{recommendations.idealConditions.temperature}</p>
                   </div>
                   <div className="text-center">
                     <p className="text-xs text-muted-foreground mb-1">{getTranslation("sensor.humidity", currentLanguage)}</p>
-                    <p className="text-xl font-bold text-foreground">{recommendations.idealConditions.humidity}</p>
+                    <p className="text-lg sm:text-xl font-bold text-foreground">{recommendations.idealConditions.humidity}</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
           )}
+
+          {/* Share Button */}
+          <div className="flex justify-end">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center gap-2"
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>{currentLanguage === "hi" ? "साझा करें" : "Share"}</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                  onClick={() => {
+                    const message = currentLanguage === "hi"
+                      ? `🌾 CropMind सुझाव\n\nफसल: ${recommendations.crop || "Wheat"}\nमिट्टी: ${recommendations.soilType || "Loamy Soil"}\nउर्वरक: ${recommendations.fertilizer || recommendations.npkRatio || "80-40-40"}\nसिंचाई: ${recommendations.irrigationSchedule || "Moderate"}\n\nसमय: ${new Date().toLocaleString("hi-IN")}`
+                      : `🌾 CropMind Recommendation\n\nCrop: ${recommendations.crop || "Wheat"}\nSoil: ${recommendations.soilType || "Loamy Soil"}\nFertilizer: ${recommendations.fertilizer || recommendations.npkRatio || "80-40-40"}\nIrrigation: ${recommendations.irrigationSchedule || "Moderate"}\n\nTime: ${new Date().toLocaleString()}`
+                    const url = `https://wa.me/?text=${encodeURIComponent(message)}`
+                    window.open(url, "_blank")
+                  }}
+                  className="cursor-pointer"
+                >
+                  <MessageCircle className="w-4 h-4 mr-2 text-green-500" />
+                  <span>WhatsApp</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    const message = currentLanguage === "hi"
+                      ? `🌾 CropMind सुझाव\n\nफसल: ${recommendations.crop || "Wheat"}\nमिट्टी: ${recommendations.soilType || "Loamy Soil"}\nउर्वरक: ${recommendations.fertilizer || recommendations.npkRatio || "80-40-40"}\nसिंचाई: ${recommendations.irrigationSchedule || "Moderate"}\n\nसमय: ${new Date().toLocaleString("hi-IN")}`
+                      : `🌾 CropMind Recommendation\n\nCrop: ${recommendations.crop || "Wheat"}\nSoil: ${recommendations.soilType || "Loamy Soil"}\nFertilizer: ${recommendations.fertilizer || recommendations.npkRatio || "80-40-40"}\nIrrigation: ${recommendations.irrigationSchedule || "Moderate"}\n\nTime: ${new Date().toLocaleString()}`
+                    const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}&quote=${encodeURIComponent(message)}`
+                    window.open(url, "_blank")
+                  }}
+                  className="cursor-pointer"
+                >
+                  <Facebook className="w-4 h-4 mr-2 text-blue-500" />
+                  <span>Facebook</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    const message = currentLanguage === "hi"
+                      ? `🌾 CropMind सुझाव\n\nफसल: ${recommendations.crop || "Wheat"}\nमिट्टी: ${recommendations.soilType || "Loamy Soil"}\nउर्वरक: ${recommendations.fertilizer || recommendations.npkRatio || "80-40-40"}\nसिंचाई: ${recommendations.irrigationSchedule || "Moderate"}\n\nसमय: ${new Date().toLocaleString("hi-IN")}`
+                      : `🌾 CropMind Recommendation\n\nCrop: ${recommendations.crop || "Wheat"}\nSoil: ${recommendations.soilType || "Loamy Soil"}\nFertilizer: ${recommendations.fertilizer || recommendations.npkRatio || "80-40-40"}\nIrrigation: ${recommendations.irrigationSchedule || "Moderate"}\n\nTime: ${new Date().toLocaleString()}`
+                    const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(message)}&url=${encodeURIComponent(window.location.href)}`
+                    window.open(url, "_blank")
+                  }}
+                  className="cursor-pointer"
+                >
+                  <Twitter className="w-4 h-4 mr-2 text-sky-500" />
+                  <span>Twitter/X</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    const subject = currentLanguage === "hi" ? "CropMind सुझाव" : "CropMind Recommendation"
+                    const body = currentLanguage === "hi"
+                      ? `फसल: ${recommendations.crop || "Wheat"}\nमिट्टी: ${recommendations.soilType || "Loamy Soil"}\nउर्वरक: ${recommendations.fertilizer || recommendations.npkRatio || "80-40-40"}\nसिंचाई: ${recommendations.irrigationSchedule || "Moderate"}`
+                      : `Crop: ${recommendations.crop || "Wheat"}\nSoil: ${recommendations.soilType || "Loamy Soil"}\nFertilizer: ${recommendations.fertilizer || recommendations.npkRatio || "80-40-40"}\nIrrigation: ${recommendations.irrigationSchedule || "Moderate"}`
+                    const url = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+                    window.location.href = url
+                  }}
+                  className="cursor-pointer"
+                >
+                  <Mail className="w-4 h-4 mr-2" />
+                  <span>Email</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
 
         </motion.div>
       )}

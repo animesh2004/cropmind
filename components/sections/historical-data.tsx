@@ -4,7 +4,14 @@ import { useEffect, useState } from "react"
 import { motion } from "framer-motion"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts"
 import { Button } from "@/components/ui/button"
+import { Download, ChevronDown } from "lucide-react"
 import { getTranslation } from "@/lib/translations"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 type Period = "1Day" | "1Week" | "1Month"
 
@@ -65,19 +72,33 @@ export default function HistoricalData({ language = "en" }: { language?: string 
     return () => clearInterval(interval)
   }, [activePeriod])
 
+  // CSV Download function
+  const downloadCSV = (csvContent: string, filename: string) => {
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+    const link = document.createElement("a")
+    const url = URL.createObjectURL(blob)
+    link.setAttribute("href", url)
+    link.setAttribute("download", filename)
+    link.style.visibility = "hidden"
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <motion.section
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: "easeInOut", delay: 0.5 }}
-      className="xl:col-span-2 bg-gradient-to-br from-card via-card/50 to-card border border-border/50 rounded-xl p-6 shadow-lg hover:shadow-xl transition-shadow duration-300"
+      className="xl:col-span-2 bg-gradient-to-br from-card via-card/50 to-card border border-border/50 rounded-xl p-4 sm:p-6 shadow-lg hover:shadow-xl transition-shadow duration-300"
     >
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-2xl font-bold text-foreground mb-1">{getTranslation("graph.title", currentLanguage)}</h2>
-          <p className="text-xs text-muted-foreground">{getTranslation("graph.description", currentLanguage)}</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4 sm:mb-6">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-xl sm:text-2xl font-bold text-foreground mb-1 break-words">{getTranslation("graph.title", currentLanguage)}</h2>
+          <p className="text-xs text-muted-foreground break-words">{getTranslation("graph.description", currentLanguage)}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap items-center">
           {(["1Day", "1Week", "1Month"] as const).map((period) => (
             <motion.div
               key={period}
@@ -98,6 +119,116 @@ export default function HistoricalData({ language = "en" }: { language?: string 
             </Button>
             </motion.div>
           ))}
+          
+          {/* Download CSV Button with 3 format options */}
+          {data.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  <span className="hidden sm:inline">{currentLanguage === "hi" ? "डाउनलोड" : "Download"}</span>
+                  <ChevronDown className="w-3 h-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem
+                  onClick={() => {
+                    // Standard Format: Time, Temperature, Moisture, Humidity
+                    const headers = currentLanguage === "hi" 
+                      ? "समय,तापमान (°C),नमी (%),आर्द्रता (%)"
+                      : "Time,Temperature (°C),Moisture (%),Humidity (%)"
+                    const rows = data.map((row) => 
+                      `${row.time || ""},${row.temp || 0},${row.moisture || 0},${row.humidity || 0}`
+                    ).join("\n")
+                    const csvContent = `${headers}\n${rows}`
+                    downloadCSV(csvContent, `cropmind-standard-${activePeriod.toLowerCase()}-${new Date().toISOString().split("T")[0]}.csv`)
+                  }}
+                  className="cursor-pointer"
+                >
+                  <span>{currentLanguage === "hi" ? "📊 मानक प्रारूप" : "📊 Standard Format"}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    // Detailed Format: Time, Temperature, Moisture, Humidity, pH (if available), Date
+                    const headers = currentLanguage === "hi"
+                      ? "दिनांक,समय,तापमान (°C),नमी (%),आर्द्रता (%),pH,टिप्पणी"
+                      : "Date,Time,Temperature (°C),Moisture (%),Humidity (%),pH,Notes"
+                    const rows = data.map((row) => {
+                      const date = new Date().toLocaleDateString()
+                      const time = row.time || ""
+                      const temp = row.temp || 0
+                      const moisture = row.moisture || 0
+                      const humidity = row.humidity || 0
+                      const ph = row.ph || "N/A"
+                      const notes = currentLanguage === "hi" ? "सेंसर डेटा" : "Sensor Data"
+                      return `${date},${time},${temp},${moisture},${humidity},${ph},${notes}`
+                    }).join("\n")
+                    const csvContent = `${headers}\n${rows}`
+                    downloadCSV(csvContent, `cropmind-detailed-${activePeriod.toLowerCase()}-${new Date().toISOString().split("T")[0]}.csv`)
+                  }}
+                  className="cursor-pointer"
+                >
+                  <span>{currentLanguage === "hi" ? "📋 विस्तृत प्रारूप" : "📋 Detailed Format"}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    // Summary Format: Period summary with min, max, avg
+                    const temps = data.map((r) => Number(r.temp) || 0).filter((v) => v > 0)
+                    const moistures = data.map((r) => Number(r.moisture) || 0).filter((v) => v > 0)
+                    const humidities = data.map((r) => Number(r.humidity) || 0).filter((v) => v > 0)
+                    
+                    const avgTemp = temps.length > 0 ? (temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(2) : "0"
+                    const minTemp = temps.length > 0 ? Math.min(...temps).toFixed(2) : "0"
+                    const maxTemp = temps.length > 0 ? Math.max(...temps).toFixed(2) : "0"
+                    
+                    const avgMoisture = moistures.length > 0 ? (moistures.reduce((a, b) => a + b, 0) / moistures.length).toFixed(2) : "0"
+                    const minMoisture = moistures.length > 0 ? Math.min(...moistures).toFixed(2) : "0"
+                    const maxMoisture = moistures.length > 0 ? Math.max(...moistures).toFixed(2) : "0"
+                    
+                    const avgHumidity = humidities.length > 0 ? (humidities.reduce((a, b) => a + b, 0) / humidities.length).toFixed(2) : "0"
+                    const minHumidity = humidities.length > 0 ? Math.min(...humidities).toFixed(2) : "0"
+                    const maxHumidity = humidities.length > 0 ? Math.max(...humidities).toFixed(2) : "0"
+                    
+                    const periodName = activePeriod === "1Day" 
+                      ? (currentLanguage === "hi" ? "1 दिन" : "1 Day")
+                      : activePeriod === "1Week"
+                      ? (currentLanguage === "hi" ? "1 सप्ताह" : "1 Week")
+                      : (currentLanguage === "hi" ? "1 महीना" : "1 Month")
+                    
+                    const headers = currentLanguage === "hi"
+                      ? "पैरामीटर,न्यूनतम,अधिकतम,औसत,इकाई"
+                      : "Parameter,Minimum,Maximum,Average,Unit"
+                    
+                    const rows = [
+                      currentLanguage === "hi" 
+                        ? `तापमान,${minTemp},${maxTemp},${avgTemp},°C`
+                        : `Temperature,${minTemp},${maxTemp},${avgTemp},°C`,
+                      currentLanguage === "hi"
+                        ? `नमी,${minMoisture},${maxMoisture},${avgMoisture},%`
+                        : `Moisture,${minMoisture},${maxMoisture},${avgMoisture},%`,
+                      currentLanguage === "hi"
+                        ? `आर्द्रता,${minHumidity},${maxHumidity},${avgHumidity},%`
+                        : `Humidity,${minHumidity},${maxHumidity},${avgHumidity},%`
+                    ].join("\n")
+                    
+                    const summary = currentLanguage === "hi"
+                      ? `अवधि: ${periodName}\nतारीख: ${new Date().toLocaleDateString()}\nकुल रिकॉर्ड: ${data.length}\n\n`
+                      : `Period: ${periodName}\nDate: ${new Date().toLocaleDateString()}\nTotal Records: ${data.length}\n\n`
+                    
+                    const csvContent = `${summary}${headers}\n${rows}`
+                    downloadCSV(csvContent, `cropmind-summary-${activePeriod.toLowerCase()}-${new Date().toISOString().split("T")[0]}.csv`)
+                  }}
+                  className="cursor-pointer"
+                >
+                  <span>{currentLanguage === "hi" ? "📈 सारांश प्रारूप" : "📈 Summary Format"}</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
 
@@ -124,19 +255,23 @@ export default function HistoricalData({ language = "en" }: { language?: string 
               </p>
             )}
           </div>
-          <ResponsiveContainer width="100%" height={320}>
-            <LineChart data={data} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
+          <ResponsiveContainer width="100%" height={250}>
+            <LineChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 30 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" opacity={0.3} />
               <XAxis 
                 dataKey="time" 
                 stroke="#6B7280" 
-                style={{ fontSize: "11px" }}
+                style={{ fontSize: "10px" }}
                 tick={{ fill: "#6B7280" }}
+                angle={-45}
+                textAnchor="end"
+                height={60}
               />
               <YAxis 
                 stroke="#6B7280" 
-                style={{ fontSize: "11px" }}
+                style={{ fontSize: "10px" }}
                 tick={{ fill: "#6B7280" }}
+                width={40}
               />
           <Tooltip
             contentStyle={{

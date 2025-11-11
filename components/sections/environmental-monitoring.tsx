@@ -3,9 +3,15 @@
 import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import SensorCard from "../sensor-card"
-import { Droplet, Thermometer, Wind, Beaker, Volume2, VolumeX } from "lucide-react"
+import { Droplet, Thermometer, Wind, Beaker, Volume2, VolumeX, Share2, MessageCircle, Facebook, Twitter, Mail } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { getTranslation } from "@/lib/translations"
 
 type SensorResponse = {
@@ -24,11 +30,20 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
   const [phValue, setPhValue] = useState(0)
   const [phStatus, setPhStatus] = useState("")
   const [isSpeaking, setIsSpeaking] = useState(false)
-  const [currentLanguage, setCurrentLanguage] = useState(language)
+  // Initialize currentLanguage from localStorage if available, otherwise use prop
+  const [currentLanguage, setCurrentLanguage] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("cropMind_language") || language || "en"
+    }
+    return language || "en"
+  })
 
   useEffect(() => {
-    // Update current language when prop changes
-    setCurrentLanguage(language)
+    // Get initial language from localStorage
+    const savedLang = typeof window !== "undefined" 
+      ? (localStorage.getItem("cropMind_language") || language || "en")
+      : (language || "en")
+    setCurrentLanguage(savedLang)
 
     // Listen for language changes from profile
     const handleLanguageChange = (event: CustomEvent) => {
@@ -36,7 +51,9 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
       setCurrentLanguage(newLang)
     }
 
-    window.addEventListener("languageChanged", handleLanguageChange as EventListener)
+    if (typeof window !== "undefined") {
+      window.addEventListener("languageChanged", handleLanguageChange as EventListener)
+    }
 
     const load = async () => {
       try {
@@ -48,11 +65,20 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
         if (!res.ok) throw new Error("Failed to load sensors")
         const json = (await res.json()) as SensorResponse
         setData(json)
-        setPhValue(json.ph)
+        // Ensure pH is properly parsed and updated
+        const phValue = typeof json.ph === 'number' ? json.ph : (typeof json.ph === 'string' ? parseFloat(json.ph) : parseFloat(String(json.ph || '6.8')))
+        setPhValue(phValue)
         
         // Dispatch event to notify other components of data update
         if (typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("sensorDataUpdated", { detail: json }))
+          window.dispatchEvent(new CustomEvent("sensorDataUpdated", { 
+            detail: {
+              soilMoisture: json.soilMoisture,
+              temperature: json.temperature,
+              humidity: json.humidity,
+              ph: phValue
+            }
+          }))
         }
       } catch (e) {
         setError("Could not fetch sensor data")
@@ -61,18 +87,26 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
       }
     }
     load()
-    // Refresh every 10 seconds
-    const interval = setInterval(load, 10000)
+    // Auto-refresh every 5 seconds to keep it live (same as recommendations)
+    // Always load to ensure pH and all values update in real-time
+    const interval = setInterval(() => {
+      load()
+    }, 5000)
       return () => {
         clearInterval(interval)
-        window.removeEventListener("languageChanged", handleLanguageChange as EventListener)
+        if (typeof window !== "undefined") {
+          window.removeEventListener("languageChanged", handleLanguageChange as EventListener)
+        }
       }
   }, [language])
 
   useEffect(() => {
-    if (phValue < 6.5) setPhStatus(getTranslation("ph.acidic", currentLanguage))
-    else if (phValue > 7.5) setPhStatus(getTranslation("ph.basic", currentLanguage))
-    else setPhStatus(getTranslation("ph.neutral", currentLanguage))
+    // Update pH status whenever pH value or language changes
+    if (phValue > 0) { // Only update if pH value is valid
+      if (phValue < 6.5) setPhStatus(getTranslation("ph.acidic", currentLanguage))
+      else if (phValue > 7.5) setPhStatus(getTranslation("ph.basic", currentLanguage))
+      else setPhStatus(getTranslation("ph.neutral", currentLanguage))
+    }
   }, [phValue, currentLanguage])
 
   // Check for critical conditions
@@ -131,13 +165,13 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
   }
 
   const getPhColor = () => {
-    if (phValue < 6.5) return "bg-red-500 hover:bg-red-600"
-    if (phValue > 7.5) return "bg-blue-500 hover:bg-blue-600"
-    return "bg-green-500 hover:bg-green-600"
+    if (phValue < 6.5) return "bg-red-500 dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700"
+    if (phValue > 7.5) return "bg-blue-500 dark:bg-blue-600 hover:bg-blue-600 dark:hover:bg-blue-700"
+    return "bg-green-500 dark:bg-green-600 hover:bg-green-600 dark:hover:bg-green-700"
   }
 
-  // Text-to-Speech function using Web Speech API
-  const speakEnvironmentalData = () => {
+  // Text-to-Speech function - Uses external API for Hindi, browser TTS for English
+  const speakEnvironmentalData = async () => {
     if (!data) return
 
     // Stop any ongoing speech
@@ -149,69 +183,129 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
       return
     }
 
+    // Get current language
+    const lang = typeof window !== "undefined" 
+      ? (localStorage.getItem("cropMind_language") || currentLanguage || "en") 
+      : (currentLanguage || "en")
+
+    // Generate speech text
+    const speechText = generateSpeechText(data, lang)
+
+    // For Hindi, use external TTS API
+    if (lang === "hi") {
+      try {
+        setIsSpeaking(true)
+        
+        // Call external TTS API
+        const response = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: speechText, language: "hi" }),
+        })
+
+        if (!response.ok) {
+          const error = await response.json()
+          throw new Error(error.error || "Failed to generate speech")
+        }
+
+        const audioData = await response.json()
+        
+        // If API returns audio URL or base64, play it
+        if (audioData.audioUrl) {
+          const audio = new Audio(audioData.audioUrl)
+          audio.onended = () => setIsSpeaking(false)
+          audio.onerror = () => {
+            setIsSpeaking(false)
+            console.error("Audio playback error")
+          }
+          audio.play()
+        } else if (audioData.audioBase64) {
+          // If API returns base64 audio
+          const audio = new Audio(`data:audio/mp3;base64,${audioData.audioBase64}`)
+          audio.onended = () => setIsSpeaking(false)
+          audio.onerror = () => {
+            setIsSpeaking(false)
+            console.error("Audio playback error")
+          }
+          audio.play()
+        } else {
+          // Fallback to browser TTS if API doesn't return audio
+          console.warn("TTS API didn't return audio, falling back to browser TTS")
+          useBrowserTTS(speechText, lang)
+        }
+      } catch (error) {
+        console.error("External TTS error:", error)
+        setIsSpeaking(false)
+        // Fallback to browser TTS
+        useBrowserTTS(speechText, lang)
+      }
+    } else {
+      // For English and other languages, use browser TTS
+      useBrowserTTS(speechText, lang)
+    }
+  }
+
+  // Browser TTS function (for English)
+  const useBrowserTTS = (text: string, lang: string) => {
     // Check if Web Speech API is available
     if (typeof window === "undefined" || !window.speechSynthesis) {
-      alert("Text-to-speech is not supported in your browser.")
+      const msg = lang === "hi" 
+        ? "आपके ब्राउज़र में टेक्स्ट-टू-स्पीच समर्थित नहीं है।"
+        : "Text-to-speech is not supported in your browser."
+      alert(msg)
       return
     }
 
-    // Generate speech text in selected language
-    const speechText = generateSpeechText(data, currentLanguage)
+    // Cancel any existing speech
+    window.speechSynthesis.cancel()
 
-    try {
+    // Create new utterance
+    const utterance = new SpeechSynthesisUtterance(text)
+    
+    // Set language
+    utterance.lang = lang === "hi" ? "hi-IN" : "en-IN"
+    
+    // Set voice properties
+    utterance.rate = 0.9
+    utterance.pitch = 1.0
+    utterance.volume = 1.0
+
+    // Event handlers
+    utterance.onstart = () => {
       setIsSpeaking(true)
+    }
 
-      // Create speech utterance
-      const utterance = new SpeechSynthesisUtterance(speechText)
-      
-      // Set language code for speech synthesis
-      const languageCode = getLanguageCode(currentLanguage)
-      utterance.lang = languageCode
-      
-      // Set voice properties
-      utterance.rate = 1.0
-      utterance.pitch = 1.0
-      utterance.volume = 1.0
-
-      // Handle speech events
-      utterance.onend = () => {
-        setIsSpeaking(false)
-      }
-
-      utterance.onerror = (error) => {
-        console.error("Speech synthesis error:", error)
-        setIsSpeaking(false)
-        alert("Failed to generate speech. Please try again.")
-      }
-
-      // Speak
-      window.speechSynthesis.speak(utterance)
-    } catch (error) {
-      console.error("TTS error:", error)
+    utterance.onend = () => {
       setIsSpeaking(false)
-      alert("Failed to generate speech. Please try again.")
     }
+
+    utterance.onerror = (error) => {
+      setIsSpeaking(false)
+      // Don't show alert for normal interruptions
+      if (error.error !== "interrupted" && error.error !== "canceled") {
+        const errorMsg = lang === "hi" 
+          ? "भाषण उत्पन्न करने में विफल।"
+          : "Failed to generate speech."
+        console.error("Speech error:", error.error)
+      }
+    }
+
+    // Speak
+    setIsSpeaking(true)
+    window.speechSynthesis.speak(utterance)
   }
 
-  // Generate speech text in selected language
+  // Generate speech text in selected language - Simple and direct
   const generateSpeechText = (sensorData: SensorResponse, lang: string): string => {
-    const t = (key: string) => getTranslation(key, lang)
+    const t = (key: string) => getTranslation(key, lang || "en")
 
-    const soilMoistureText = `${t("speech.soilMoisture")} ${sensorData.soilMoisture.toFixed(1)} ${t("speech.percent")}`
-    const temperatureText = `${t("speech.temperature")} ${sensorData.temperature.toFixed(1)} ${t("speech.degrees")}`
-    const humidityText = `${t("speech.humidity")} ${sensorData.humidity.toFixed(1)} ${t("speech.percent")}`
-    const phText = `${t("speech.ph")} ${sensorData.ph.toFixed(1)}`
-
-    return `${t("speech.currentReadings")} ${soilMoistureText}, ${t("speech.and")} ${temperatureText}, ${t("speech.and")} ${humidityText}, ${t("speech.and")} ${phText}.`
-  }
-
-  // Get language code for speech synthesis (only Hindi and English supported)
-  const getLanguageCode = (lang: string): string => {
-    const langMap: Record<string, string> = {
-      en: "en-IN",
-      hi: "hi-IN",
+    if (lang === "hi") {
+      // Hindi text
+      return `वर्तमान पर्यावरणीय रीडिंग: मिट्टी की नमी ${sensorData.soilMoisture.toFixed(1)} प्रतिशत, तापमान ${sensorData.temperature.toFixed(1)} डिग्री सेल्सियस, आर्द्रता ${sensorData.humidity.toFixed(1)} प्रतिशत, और pH स्तर ${sensorData.ph.toFixed(1)}.`
+    } else {
+      // English text
+      return `Current environmental readings: Soil moisture is ${sensorData.soilMoisture.toFixed(1)} percent, Temperature is ${sensorData.temperature.toFixed(1)} degrees Celsius, Humidity is ${sensorData.humidity.toFixed(1)} percent, and pH level is ${sensorData.ph.toFixed(1)}.`
     }
-    return langMap[lang] || "en-IN"
   }
 
   const containerVariants = {
@@ -221,7 +315,7 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
       y: 0,
       transition: {
         duration: 0.4,
-        ease: "easeInOut",
+        ease: [0.4, 0, 0.2, 1] as const,
         staggerChildren: 0.08,
       },
     },
@@ -232,7 +326,7 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
     visible: {
       opacity: 1,
       y: 0,
-      transition: { duration: 0.4, ease: "easeInOut" },
+      transition: { duration: 0.4, ease: [0.4, 0, 0.2, 1] as const },
     },
   }
 
@@ -241,16 +335,86 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
       variants={containerVariants} 
       initial="hidden" 
       animate="visible" 
-      className="space-y-6 bg-gradient-to-br from-background via-card/30 to-background rounded-2xl p-8 border border-border/50 shadow-lg"
+      className="space-y-4 sm:space-y-6 bg-gradient-to-br from-background via-card/30 to-background rounded-xl sm:rounded-2xl p-4 sm:p-6 md:p-8 border border-border/50 shadow-lg"
     >
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-3xl font-bold text-foreground mb-2 bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4 sm:mb-6">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-foreground mb-2 bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent break-words">
             {getTranslation("nav.environmental", currentLanguage)}
           </h2>
-          <p className="text-sm text-muted-foreground">{getTranslation("sensor.realTimeData", currentLanguage)}</p>
+          <p className="text-xs sm:text-sm text-muted-foreground break-words">{getTranslation("sensor.realTimeData", currentLanguage)}</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Share Button */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex items-center gap-2"
+                disabled={!data || loading}
+              >
+                <Share2 className="w-4 h-4" />
+                <span className="hidden sm:inline">{currentLanguage === "hi" ? "साझा करें" : "Share"}</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem
+                onClick={() => {
+                  const message = currentLanguage === "hi"
+                    ? `🌾 CropMind रिपोर्ट\n\nमिट्टी की नमी: ${data?.soilMoisture.toFixed(1) || 0}%\nतापमान: ${data?.temperature.toFixed(1) || 0}°C\nआर्द्रता: ${data?.humidity.toFixed(1) || 0}%\npH: ${data?.ph.toFixed(1) || 0}\n\nसमय: ${new Date().toLocaleString("hi-IN")}`
+                    : `🌾 CropMind Report\n\nSoil Moisture: ${data?.soilMoisture.toFixed(1) || 0}%\nTemperature: ${data?.temperature.toFixed(1) || 0}°C\nHumidity: ${data?.humidity.toFixed(1) || 0}%\npH: ${data?.ph.toFixed(1) || 0}\n\nTime: ${new Date().toLocaleString()}`
+                  const url = `https://wa.me/?text=${encodeURIComponent(message)}`
+                  window.open(url, "_blank")
+                }}
+                className="cursor-pointer"
+              >
+                <MessageCircle className="w-4 h-4 mr-2 text-green-500" />
+                <span>WhatsApp</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  const message = currentLanguage === "hi"
+                    ? `🌾 CropMind रिपोर्ट\n\nमिट्टी की नमी: ${data?.soilMoisture.toFixed(1) || 0}%\nतापमान: ${data?.temperature.toFixed(1) || 0}°C\nआर्द्रता: ${data?.humidity.toFixed(1) || 0}%\npH: ${data?.ph.toFixed(1) || 0}\n\nसमय: ${new Date().toLocaleString("hi-IN")}`
+                    : `🌾 CropMind Report\n\nSoil Moisture: ${data?.soilMoisture.toFixed(1) || 0}%\nTemperature: ${data?.temperature.toFixed(1) || 0}°C\nHumidity: ${data?.humidity.toFixed(1) || 0}%\npH: ${data?.ph.toFixed(1) || 0}\n\nTime: ${new Date().toLocaleString()}`
+                  const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}&quote=${encodeURIComponent(message)}`
+                  window.open(url, "_blank")
+                }}
+                className="cursor-pointer"
+              >
+                <Facebook className="w-4 h-4 mr-2 text-blue-500" />
+                <span>Facebook</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  const message = currentLanguage === "hi"
+                    ? `🌾 CropMind रिपोर्ट\n\nमिट्टी की नमी: ${data?.soilMoisture.toFixed(1) || 0}%\nतापमान: ${data?.temperature.toFixed(1) || 0}°C\nआर्द्रता: ${data?.humidity.toFixed(1) || 0}%\npH: ${data?.ph.toFixed(1) || 0}\n\nसमय: ${new Date().toLocaleString("hi-IN")}`
+                    : `🌾 CropMind Report\n\nSoil Moisture: ${data?.soilMoisture.toFixed(1) || 0}%\nTemperature: ${data?.temperature.toFixed(1) || 0}°C\nHumidity: ${data?.humidity.toFixed(1) || 0}%\npH: ${data?.ph.toFixed(1) || 0}\n\nTime: ${new Date().toLocaleString()}`
+                  const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(message)}&url=${encodeURIComponent(window.location.href)}`
+                  window.open(url, "_blank")
+                }}
+                className="cursor-pointer"
+              >
+                <Twitter className="w-4 h-4 mr-2 text-sky-500" />
+                <span>Twitter/X</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  const subject = currentLanguage === "hi" ? "CropMind रिपोर्ट" : "CropMind Report"
+                  const body = currentLanguage === "hi"
+                    ? `मिट्टी की नमी: ${data?.soilMoisture.toFixed(1) || 0}%\nतापमान: ${data?.temperature.toFixed(1) || 0}°C\nआर्द्रता: ${data?.humidity.toFixed(1) || 0}%\npH: ${data?.ph.toFixed(1) || 0}`
+                    : `Soil Moisture: ${data?.soilMoisture.toFixed(1) || 0}%\nTemperature: ${data?.temperature.toFixed(1) || 0}°C\nHumidity: ${data?.humidity.toFixed(1) || 0}%\npH: ${data?.ph.toFixed(1) || 0}`
+                  const url = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+                  window.location.href = url
+                }}
+                className="cursor-pointer"
+              >
+                <Mail className="w-4 h-4 mr-2" />
+                <span>Email</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          
           {/* Text-to-Speech Button */}
           <motion.div 
             whileHover={{ scale: 1.05 }} 
@@ -261,7 +425,7 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
             transition={isSpeaking ? {
               duration: 1.5,
               repeat: Infinity,
-              ease: "easeInOut"
+              ease: [0.4, 0, 0.2, 1] as const
             } : {}}
           >
             <Button
@@ -274,7 +438,7 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
                   ? "bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 text-white shadow-lg shadow-purple-500/50 border-2 border-purple-400" 
                   : "bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white shadow-lg shadow-blue-500/50 border-2 border-blue-400 hover:border-blue-300"
                 }
-                font-semibold text-base px-6 py-3
+                font-semibold text-sm sm:text-base px-4 sm:px-6 py-2 sm:py-3
                 transition-all duration-300
                 disabled:opacity-50 disabled:cursor-not-allowed
               `}
@@ -305,9 +469,9 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
                       animate={{ rotate: [0, 15, -15, 15, -15, 0] }}
                       transition={{ duration: 0.5, repeat: Infinity }}
                     >
-                      <VolumeX className="w-5 h-5" />
+                      <VolumeX className="w-4 h-4 sm:w-5 sm:h-5" />
                     </motion.div>
-                    <span>{getTranslation("button.stop", currentLanguage)}</span>
+                    <span className="text-xs sm:text-sm">{getTranslation("button.stop", currentLanguage)}</span>
                     <motion.span
                       className="ml-1"
                       animate={{ opacity: [1, 0.3, 1] }}
@@ -318,8 +482,8 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
                   </>
                 ) : (
                   <>
-                    <Volume2 className="w-5 h-5" />
-                    <span>{getTranslation("button.listen", currentLanguage)}</span>
+                    <Volume2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                    <span className="text-xs sm:text-sm">{getTranslation("button.listen", currentLanguage)}</span>
                   </>
                 )}
               </span>
@@ -389,8 +553,8 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
           animate={{ opacity: 1, y: 0 }}
           className={`mb-6 p-4 rounded-lg border-2 ${
             getCriticalAlert()?.type === "critical"
-              ? "bg-red-100 dark:bg-red-900/20 border-red-500 text-red-800 dark:text-red-200"
-              : "bg-yellow-100 dark:bg-yellow-900/20 border-yellow-500 text-yellow-800 dark:text-yellow-200"
+              ? "bg-red-100 dark:bg-red-900/30 border-red-500 dark:border-red-400 text-red-800 dark:text-red-200"
+              : "bg-yellow-100 dark:bg-yellow-900/30 border-yellow-500 dark:border-yellow-400 text-yellow-800 dark:text-yellow-200"
           }`}
         >
           <div className="flex items-start gap-3">
@@ -409,7 +573,7 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
         </motion.div>
       )}
 
-      <motion.div className="grid grid-cols-1 md:grid-cols-3 gap-6" variants={containerVariants}>
+      <motion.div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6" variants={containerVariants}>
         <motion.div variants={itemVariants}>
           <SensorCard
             title={getTranslation("sensor.soilMoisture", currentLanguage)}

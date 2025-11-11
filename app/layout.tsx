@@ -11,6 +11,7 @@ export const metadata: Metadata = {
   title: "CropMind - Agriculture Dashboard",
   description: "Intelligent agriculture dashboard with real-time environmental insights",
   generator: "v0.app",
+  viewport: "width=device-width, initial-scale=1, maximum-scale=5",
 }
 
 export default function RootLayout({

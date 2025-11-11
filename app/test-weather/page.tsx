@@ -9,29 +9,89 @@ import Navbar from "@/components/navbar"
 import { ArrowLeft, Cloud, CheckCircle2, XCircle, Loader2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 
+const POPULAR_LOCATIONS = [
+  "Gorakhpur",
+  "Delhi",
+  "Mumbai",
+  "Bangalore",
+  "Kolkata",
+  "Chennai",
+  "Hyderabad",
+  "Pune",
+  "Ahmedabad",
+  "Jaipur",
+  "Lucknow",
+  "Kanpur",
+  "Nagpur",
+  "Indore",
+  "Thane",
+]
+
 export default function TestWeatherPage() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   const [location, setLocation] = useState("Gorakhpur")
+  const [results, setResults] = useState<Record<string, any>>({})
+  const [testingLocations, setTestingLocations] = useState<string[]>([])
 
-  const testWeatherAPIs = async () => {
+  const testWeatherAPIs = async (testLocation?: string) => {
+    const loc = testLocation || location
     setLoading(true)
     setError(null)
-    setResult(null)
+    if (!testLocation) {
+      setResult(null)
+    }
 
     try {
-      const response = await fetch(`/api/test-weather?location=${encodeURIComponent(location)}`)
+      const response = await fetch(`/api/test-weather?location=${encodeURIComponent(loc)}`)
       const data = await response.json()
-      setResult(data)
+      
+      if (testLocation) {
+        // Batch test - store in results
+        setResults((prev) => ({
+          ...prev,
+          [loc]: data,
+        }))
+      } else {
+        // Single test - show in main result
+        setResult(data)
+      }
+      
       if (!response.ok) {
         setError(data.error || "Test failed")
       }
     } catch (e) {
-      setError("Failed to test weather APIs: " + (e instanceof Error ? e.message : String(e)))
+      const errorMsg = "Failed to test weather APIs: " + (e instanceof Error ? e.message : String(e))
+      setError(errorMsg)
+      if (testLocation) {
+        setResults((prev) => ({
+          ...prev,
+          [loc]: { error: errorMsg },
+        }))
+      }
     } finally {
       setLoading(false)
     }
+  }
+
+  const testMultipleLocations = async (locations: string[]) => {
+    setTestingLocations(locations)
+    setResults({})
+    setError(null)
+    
+    for (const loc of locations) {
+      await testWeatherAPIs(loc)
+      // Small delay between requests to avoid rate limiting
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+    
+    setTestingLocations([])
+  }
+
+  const testQuickLocation = (loc: string) => {
+    setLocation(loc)
+    testWeatherAPIs(loc)
   }
 
   const getStatusIcon = (status: string) => {
@@ -93,7 +153,7 @@ export default function TestWeatherPage() {
                   onChange={(e) => setLocation(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && !loading && testWeatherAPIs()}
                 />
-                <Button onClick={testWeatherAPIs} disabled={loading || !location}>
+                <Button onClick={() => testWeatherAPIs()} disabled={loading || !location}>
                   {loading ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -103,6 +163,60 @@ export default function TestWeatherPage() {
                     "Test APIs"
                   )}
                 </Button>
+              </div>
+
+              {/* Quick Location Buttons */}
+              <div>
+                <p className="text-sm font-semibold mb-2">Quick Test Locations:</p>
+                <div className="flex flex-wrap gap-2">
+                  {POPULAR_LOCATIONS.map((loc) => (
+                    <Button
+                      key={loc}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => testQuickLocation(loc)}
+                      disabled={loading}
+                      className={location === loc ? "bg-primary text-primary-foreground" : ""}
+                    >
+                      {loc}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Batch Test */}
+              <div className="pt-4 border-t">
+                <p className="text-sm font-semibold mb-2">Batch Test Multiple Locations:</p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={() => testMultipleLocations(POPULAR_LOCATIONS.slice(0, 5))}
+                    disabled={testingLocations.length > 0}
+                  >
+                    {testingLocations.length > 0 ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Testing {testingLocations.length} locations...
+                      </>
+                    ) : (
+                      "Test Top 5 Cities"
+                    )}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => testMultipleLocations(POPULAR_LOCATIONS)}
+                    disabled={testingLocations.length > 0}
+                  >
+                    {testingLocations.length > 0 ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Testing {testingLocations.length} locations...
+                      </>
+                    ) : (
+                      "Test All Cities"
+                    )}
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -332,6 +446,132 @@ export default function TestWeatherPage() {
                 </CardContent>
               </Card>
             </>
+          )}
+
+          {/* Batch Test Results */}
+          {Object.keys(results).length > 0 && (
+            <Card className="border-2 border-blue-200">
+              <CardHeader>
+                <CardTitle>Batch Test Results ({Object.keys(results).length} locations)</CardTitle>
+                <CardDescription>Results from testing multiple locations</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {Object.entries(results).map(([loc, data]: [string, any]) => (
+                    <div key={loc} className="p-4 border rounded-lg">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-semibold text-lg">{loc}</h3>
+                        <div className="flex gap-2">
+                          {data.tests?.openweathermap?.status === "success" && (
+                            <Badge className="bg-green-500">OWM ✓</Badge>
+                          )}
+                          {data.tests?.accuweather?.status === "success" && (
+                            <Badge className="bg-blue-500">AW ✓</Badge>
+                          )}
+                          {(data.tests?.openweathermap?.status === "failed" ||
+                            data.tests?.accuweather?.status === "failed") && (
+                            <Badge className="bg-red-500">Failed</Badge>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* OpenWeatherMap Result */}
+                        <div className="p-3 bg-muted/50 rounded">
+                          <p className="text-xs font-semibold mb-2">OpenWeatherMap</p>
+                          {data.tests?.openweathermap?.data ? (
+                            <div className="space-y-1 text-sm">
+                              <p>
+                                <span className="text-muted-foreground">Temp:</span>{" "}
+                                {data.tests.openweathermap.data.temperature}°C
+                              </p>
+                              <p>
+                                <span className="text-muted-foreground">Condition:</span>{" "}
+                                {data.tests.openweathermap.data.condition}
+                              </p>
+                              <p>
+                                <span className="text-muted-foreground">Humidity:</span>{" "}
+                                {data.tests.openweathermap.data.humidity}%
+                              </p>
+                              {data.tests.openweathermap.responseTime && (
+                                <p className="text-xs text-muted-foreground">
+                                  Response: {data.tests.openweathermap.responseTime}
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              {data.tests?.openweathermap?.error || "Not tested"}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* AccuWeather Result */}
+                        <div className="p-3 bg-muted/50 rounded">
+                          <p className="text-xs font-semibold mb-2">AccuWeather</p>
+                          {data.tests?.accuweather?.data ? (
+                            <div className="space-y-1 text-sm">
+                              <p>
+                                <span className="text-muted-foreground">Temp:</span>{" "}
+                                {data.tests.accuweather.data.temperature}°C
+                              </p>
+                              <p>
+                                <span className="text-muted-foreground">Condition:</span>{" "}
+                                {data.tests.accuweather.data.condition}
+                              </p>
+                              <p>
+                                <span className="text-muted-foreground">Humidity:</span>{" "}
+                                {data.tests.accuweather.data.humidity}%
+                              </p>
+                              {data.tests.accuweather.responseTime && (
+                                <p className="text-xs text-muted-foreground">
+                                  Response: {data.tests.accuweather.responseTime}
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              {data.tests?.accuweather?.error || "Not tested"}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Summary Stats */}
+                <div className="mt-4 p-4 bg-muted rounded-lg">
+                  <p className="font-semibold mb-2">Summary:</p>
+                  <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <p className="text-muted-foreground">Total Tested</p>
+                      <p className="text-lg font-bold">{Object.keys(results).length}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">OpenWeatherMap Success</p>
+                      <p className="text-lg font-bold text-green-600">
+                        {
+                          Object.values(results).filter(
+                            (r: any) => r.tests?.openweathermap?.status === "success"
+                          ).length
+                        }
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">AccuWeather Success</p>
+                      <p className="text-lg font-bold text-blue-600">
+                        {
+                          Object.values(results).filter(
+                            (r: any) => r.tests?.accuweather?.status === "success"
+                          ).length
+                        }
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           )}
         </div>
       </div>

@@ -9,12 +9,28 @@ export async function GET(request: NextRequest) {
     
     // Try OpenWeatherMap first (more reliable and free)
     // Get and trim API keys to remove any whitespace
+    // Note: In production, these must be set in your deployment platform's environment variables
     const openWeatherKey = (process.env.OPENWEATHER_API_KEY || process.env.NEXT_PUBLIC_OPENWEATHER_API_KEY || "").trim()
     const accuWeatherKey = (process.env.ACCUWEATHER_API_KEY || "").trim()
     
     // Validate API keys are not empty
     const hasOpenWeatherKey = openWeatherKey.length > 0
     const hasAccuWeatherKey = accuWeatherKey.length > 0
+    
+    // Log in production for debugging (without exposing keys)
+    if (process.env.NODE_ENV === "production") {
+      console.log("Weather API - Environment check:", {
+        hasOpenWeatherKey,
+        hasAccuWeatherKey,
+        openWeatherKeyLength: openWeatherKey.length,
+        accuWeatherKeyLength: accuWeatherKey.length,
+        envVarsAvailable: {
+          OPENWEATHER_API_KEY: !!process.env.OPENWEATHER_API_KEY,
+          NEXT_PUBLIC_OPENWEATHER_API_KEY: !!process.env.NEXT_PUBLIC_OPENWEATHER_API_KEY,
+          ACCUWEATHER_API_KEY: !!process.env.ACCUWEATHER_API_KEY,
+        }
+      })
+    }
     
     // Try OpenWeatherMap API first (better free tier)
     if (hasOpenWeatherKey) {
@@ -322,7 +338,17 @@ export async function GET(request: NextRequest) {
     }
     
     // Final fallback: Return mock data with error info
-    console.warn("All weather APIs failed, returning mock data")
+    console.warn("All weather APIs failed, returning mock data", {
+      hasOpenWeatherKey,
+      hasAccuWeatherKey,
+      location: location || "Gorakhpur",
+      nodeEnv: process.env.NODE_ENV
+    })
+    
+    const errorMessage = !hasOpenWeatherKey && !hasAccuWeatherKey
+      ? "Weather API keys not configured. Please set OPENWEATHER_API_KEY or ACCUWEATHER_API_KEY in your deployment platform's environment variables. For local development, add them to .env.local file."
+      : "Weather API unavailable. Check API keys and network connectivity."
+    
     return NextResponse.json({
       temperature: 28,
       condition: "Partly Cloudy",
@@ -332,18 +358,20 @@ export async function GET(request: NextRequest) {
       description: "Partly cloudy with light winds",
       location: location || "Gorakhpur",
       _fallback: true,
-      _error: "Weather API unavailable. Please check API keys: OPENWEATHER_API_KEY or ACCUWEATHER_API_KEY",
+      _error: errorMessage,
       _debug: {
         hasOpenWeatherKey: hasOpenWeatherKey,
         hasAccuWeatherKey: hasAccuWeatherKey,
         openWeatherKeyLength: openWeatherKey.length,
         accuWeatherKeyLength: accuWeatherKey.length,
         location: location || "Gorakhpur",
+        nodeEnv: process.env.NODE_ENV,
         envVarsChecked: [
           "OPENWEATHER_API_KEY",
           "NEXT_PUBLIC_OPENWEATHER_API_KEY",
           "ACCUWEATHER_API_KEY"
-        ]
+        ],
+        deploymentNote: "If this is production, ensure environment variables are set in your deployment platform (Vercel/Netlify/etc). .env.local files are NOT deployed."
       }
     })
   } catch (error) {

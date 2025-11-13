@@ -44,34 +44,34 @@ export async function GET(request: Request) {
       // Check if webhook data is recent (within last 2 minutes)
       const dataAge = Date.now() - new Date(webhookData.timestamp).getTime()
       if (dataAge < 120000) { // 2 minutes
-        return NextResponse.json({
-          timestamp: webhookData.timestamp,
-          soilMoisture: webhookData.soilMoisture,
-          temperature: webhookData.temperature,
-          humidity: webhookData.humidity,
-          ph: webhookData.ph,
-          pir: webhookData.pir,
-          flame: webhookData.flame,
-          status: "ok",
-          source: "webhook",
-        })
-      }
+      return NextResponse.json({
+        timestamp: webhookData.timestamp,
+        soilMoisture: webhookData.soilMoisture,
+        temperature: webhookData.temperature,
+        humidity: webhookData.humidity,
+        ph: webhookData.ph,
+        pir: webhookData.pir,
+        flame: webhookData.flame,
+        status: "ok",
+        source: "webhook",
+      })
+    }
     }
 
     // Use polling data if available
     if (blynkData) {
-      const ph = blynkData.ph || 6.8
-      return NextResponse.json({
-        timestamp: blynkData.timestamp,
-        soilMoisture: blynkData.soilMoisture,
-        temperature: blynkData.temperature,
-        humidity: blynkData.humidity,
-        ph: ph,
-        pir: blynkData.pir,
-        flame: blynkData.flame,
-        status: "ok",
-        source: "polling",
-      })
+    const ph = blynkData.ph || 6.8
+    return NextResponse.json({
+      timestamp: blynkData.timestamp,
+      soilMoisture: blynkData.soilMoisture,
+      temperature: blynkData.temperature,
+      humidity: blynkData.humidity,
+      ph: ph,
+      pir: blynkData.pir,
+      flame: blynkData.flame,
+      status: "ok",
+      source: "polling",
+    })
     }
 
     // If both fail, return error with helpful message

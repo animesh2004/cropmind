@@ -508,14 +508,112 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="text-center">
-                <motion.div
-                  className={`w-24 h-24 rounded-full ${getPhColor()} text-white flex items-center justify-center mx-auto mb-4 shadow-lg`}
-                  animate={{ scale: [1, 1.1, 1] }}
-                  transition={{ duration: 2, repeat: Number.POSITIVE_INFINITY }}
+                {/* Circular Progress Indicator for pH */}
+                <div className="relative w-32 h-32 mx-auto mb-4">
+                  {/* Background Circle */}
+                  <svg className="w-32 h-32 transform -rotate-90" viewBox="0 0 120 120">
+                    {/* Background track */}
+                    <circle
+                      cx="60"
+                      cy="60"
+                      r="50"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="8"
+                      className="text-muted opacity-20"
+                    />
+                    {/* Animated progress circle */}
+                    <motion.circle
+                      cx="60"
+                      cy="60"
+                      r="50"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="8"
+                      strokeLinecap="round"
+                      className={phValue < 6.5 ? "text-red-500" : phValue > 7.5 ? "text-blue-500" : "text-green-500"}
+                      initial={{ pathLength: 0 }}
+                      animate={{ 
+                        pathLength: phValue / 14, // pH scale is 0-14
+                      }}
+                      transition={{ duration: 1.5, ease: "easeOut" }}
+                      strokeDasharray={`${2 * Math.PI * 50}`}
+                    />
+                  </svg>
+                  {/* Center content with glow effect */}
+                  <motion.div
+                    className={`absolute inset-0 rounded-full ${getPhColor()} text-white flex items-center justify-center`}
+                    style={{
+                      boxShadow: phValue < 6.5 
+                        ? "0 0 25px rgba(239, 68, 68, 0.6), 0 0 50px rgba(239, 68, 68, 0.3)" 
+                        : phValue > 7.5 
+                        ? "0 0 25px rgba(59, 130, 246, 0.6), 0 0 50px rgba(59, 130, 246, 0.3)" 
+                        : "0 0 25px rgba(34, 197, 94, 0.6), 0 0 50px rgba(34, 197, 94, 0.3)"
+                    }}
+                    animate={{ 
+                      scale: [1, 1.05, 1],
+                    }}
+                    transition={{ 
+                      duration: 2, 
+                      repeat: Number.POSITIVE_INFINITY,
+                      ease: "easeInOut"
+                    }}
+                  >
+                    <motion.span 
+                      className="text-4xl font-bold"
+                      animate={{ 
+                        scale: [1, 1.1, 1],
+                      }}
+                      transition={{ 
+                        duration: 1.5, 
+                        repeat: Number.POSITIVE_INFINITY,
+                        ease: "easeInOut"
+                      }}
+                    >
+                      {phValue.toFixed(1)}
+                    </motion.span>
+                  </motion.div>
+                  {/* pH scale indicator dots */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="w-full h-full relative">
+                      {/* Acidic indicator (left) */}
+                      <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2">
+                        <div className="w-2 h-2 rounded-full bg-red-500 opacity-60"></div>
+                      </div>
+                      {/* Neutral indicator (center) */}
+                      <div className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2">
+                        <div className="w-2 h-2 rounded-full bg-green-500 opacity-60"></div>
+                      </div>
+                      {/* Basic indicator (right) */}
+                      <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2">
+                        <div className="w-2 h-2 rounded-full bg-blue-500 opacity-60"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <motion.p 
+                  className="text-xl font-semibold text-foreground"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
                 >
-                  <span className="text-3xl font-bold">{phValue.toFixed(1)}</span>
-                </motion.div>
-                <p className="text-xl font-semibold text-foreground">{getTranslation("ph.soilIs", currentLanguage)} {phStatus}</p>
+                  {getTranslation("ph.soilIs", currentLanguage)} {phStatus}
+                </motion.p>
+                {/* pH scale bar */}
+                <div className="mt-4 relative h-3 bg-gradient-to-r from-red-500 via-green-500 to-blue-500 rounded-full overflow-hidden">
+                  <motion.div
+                    className="absolute top-0 bottom-0 w-1 bg-white shadow-lg"
+                    style={{ left: `${(phValue / 14) * 100}%` }}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.5 }}
+                  />
+                </div>
+                <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                  <span>0</span>
+                  <span>7</span>
+                  <span>14</span>
+                </div>
               </div>
               <div className="bg-gradient-to-br from-primary/10 to-primary/5 rounded-xl p-5 border border-primary/20">
                 {phValue < 6.5 ? (

@@ -62,7 +62,7 @@ export async function fetchBlynkPin(token: string, pin: string): Promise<BlynkPi
     if (error instanceof Error && error.name === "AbortError") {
       console.error(`Blynk API timeout for pin ${pin}`)
     } else {
-      console.error(`Error fetching Blynk pin ${pin}:`, error)
+    console.error(`Error fetching Blynk pin ${pin}:`, error)
     }
     return null
   }

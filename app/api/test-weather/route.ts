@@ -15,19 +15,23 @@ export async function GET(request: NextRequest) {
       tests: {},
     }
 
-  // Get API keys
-  const openWeatherKey = process.env.OPENWEATHER_API_KEY || process.env.NEXT_PUBLIC_OPENWEATHER_API_KEY || ""
-  const accuWeatherKey = process.env.ACCUWEATHER_API_KEY || ""
+  // Get and trim API keys to remove any whitespace
+  const openWeatherKey = (process.env.OPENWEATHER_API_KEY || process.env.NEXT_PUBLIC_OPENWEATHER_API_KEY || "").trim()
+  const accuWeatherKey = (process.env.ACCUWEATHER_API_KEY || "").trim()
+  
+  // Validate API keys are not empty
+  const hasOpenWeatherKey = openWeatherKey.length > 0
+  const hasAccuWeatherKey = accuWeatherKey.length > 0
 
   // Test 1: OpenWeatherMap API
   testResults.tests.openweathermap = {
-    configured: !!openWeatherKey,
+    configured: hasOpenWeatherKey,
     status: "not_tested",
     error: null,
     data: null,
   }
 
-  if (openWeatherKey) {
+  if (hasOpenWeatherKey) {
     try {
       const startTime = Date.now()
       const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(location)}&appid=${openWeatherKey}&units=metric`
@@ -86,13 +90,13 @@ export async function GET(request: NextRequest) {
 
   // Test 2: AccuWeather API
   testResults.tests.accuweather = {
-    configured: !!accuWeatherKey,
+    configured: hasAccuWeatherKey,
     status: "not_tested",
     error: null,
     data: null,
   }
 
-  if (accuWeatherKey) {
+  if (hasAccuWeatherKey) {
     try {
       // Step 1: Get location key
       const startTime = Date.now()
@@ -198,11 +202,11 @@ export async function GET(request: NextRequest) {
   
   testResults.summary = {
     openweathermap: {
-      configured: !!openWeatherKey,
+      configured: hasOpenWeatherKey,
       working: openWeatherSuccess,
     },
     accuweather: {
-      configured: !!accuWeatherKey,
+      configured: hasAccuWeatherKey,
       working: accuWeatherSuccess,
     },
     recommendation: openWeatherSuccess

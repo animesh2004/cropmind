@@ -78,15 +78,29 @@ export default function SensorCard({ title, value, unit, icon: Icon, status, lan
         <h3 className="text-sm font-semibold text-foreground tracking-tight break-words min-w-0">{title}</h3>
         
         {/* Progress bar for visual indication */}
-        {title.includes("Moisture") && (
+        {(title.includes("Moisture") || title.includes("Temperature") || title.includes("Humidity") || title.includes("तापमान") || title.includes("आर्द्रता") || title.includes("नमी")) && (
           <div className="mt-2 w-full bg-muted rounded-full h-2 overflow-hidden">
             <motion.div
               className={`h-full rounded-full ${
                 status === "optimal" ? "bg-primary" : status === "warning" ? "bg-amber-500" : "bg-destructive"
               }`}
               initial={{ width: 0 }}
-              animate={{ width: `${Math.min(100, Math.max(0, parseFloat(value)))}%` }}
-              transition={{ duration: 0.5 }}
+              animate={{ 
+                width: (() => {
+                  const numValue = parseFloat(value)
+                  if (title.includes("Temperature") || title.includes("तापमान")) {
+                    // Convert temperature (0-50°C) to percentage (0-100%)
+                    return `${Math.min(100, Math.max(0, (numValue / 50) * 100))}%`
+                  } else if (title.includes("Humidity") || title.includes("आर्द्रता")) {
+                    // Humidity is already a percentage
+                    return `${Math.min(100, Math.max(0, numValue))}%`
+                  } else {
+                    // Soil Moisture is already a percentage
+                    return `${Math.min(100, Math.max(0, numValue))}%`
+                  }
+                })()
+              }}
+              transition={{ duration: 0.5, ease: "easeOut" }}
             />
           </div>
         )}

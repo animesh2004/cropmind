@@ -346,7 +346,9 @@ export async function GET(request: NextRequest) {
     })
     
     const errorMessage = !hasOpenWeatherKey && !hasAccuWeatherKey
-      ? "Weather API keys not configured. Please set OPENWEATHER_API_KEY or ACCUWEATHER_API_KEY in your deployment platform's environment variables. For local development, add them to .env.local file."
+      ? "Weather API keys not configured in production. IMPORTANT: .env.local files are NOT deployed. You must set environment variables in your deployment platform (Vercel/Netlify/etc). Go to: Settings > Environment Variables and add ACCUWEATHER_API_KEY=zpka_c7af519f60584a71bbd29fd53a9ce960_069d6285"
+      : hasAccuWeatherKey && !hasOpenWeatherKey
+      ? "AccuWeather API key is configured but API call failed. Check network connectivity or API key validity."
       : "Weather API unavailable. Check API keys and network connectivity."
     
     return NextResponse.json({

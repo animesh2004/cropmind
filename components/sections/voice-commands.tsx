@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { motion } from "framer-motion"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -14,6 +14,15 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
   const [recognition, setRecognition] = useState<any>(null)
   const [isExamplesOpen, setIsExamplesOpen] = useState(false)
   const [currentLanguage, setCurrentLanguage] = useState(language)
+  const [ttsStatus, setTtsStatus] = useState<"gemini" | "error" | "none" | "thinking" | "speaking">("none")
+  const [ttsError, setTtsError] = useState<string>("")
+  const [responseText, setResponseText] = useState<string>("")
+  const [isProcessing, setIsProcessing] = useState(false)
+  
+  // Refs to track audio and prevent overlapping
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null)
+  const currentAudioUrlRef = useRef<string | null>(null)
+  const isSpeakingRef = useRef<boolean>(false)
 
   // Listen for language changes and update from localStorage
   useEffect(() => {
@@ -80,30 +89,303 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
     return condition
   }
 
-  // Define speakResponse function
-  const speakResponse = (text: string) => {
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      // Stop any ongoing speech
-      window.speechSynthesis.cancel()
-      const utterance = new SpeechSynthesisUtterance(text)
-      // Get current language from localStorage to ensure we have the latest value
+  // Helper function to stream text word by word (like Google Assistant)
+  const streamResponseText = async (text: string, onUpdate: (chunk: string) => void) => {
+    const words = text.split(/(\s+)/)
+    let currentText = ""
+    
+    for (let i = 0; i < words.length; i++) {
+      // Add natural delay between words (faster for short words, slower for long)
+      const delay = words[i].length > 10 ? 80 : words[i].length > 5 ? 50 : 30
+      await new Promise(resolve => setTimeout(resolve, delay))
+      
+      currentText += words[i]
+      onUpdate(currentText)
+    }
+  }
+
+  // Helper function to stop any currently playing audio
+  const stopCurrentAudio = () => {
+    if (currentAudioRef.current) {
+      try {
+        currentAudioRef.current.pause()
+        currentAudioRef.current.currentTime = 0
+        currentAudioRef.current.onended = null
+        currentAudioRef.current.onerror = null
+      } catch (e) {
+        console.error("Error stopping audio:", e)
+      }
+      currentAudioRef.current = null
+    }
+    
+    if (currentAudioUrlRef.current) {
+      try {
+        URL.revokeObjectURL(currentAudioUrlRef.current)
+      } catch (e) {
+        console.error("Error revoking audio URL:", e)
+      }
+      currentAudioUrlRef.current = null
+    }
+    
+    isSpeakingRef.current = false
+  }
+
+  // Define speakResponse function - Gemini TTS ONLY with Google Assistant-like behavior
+  const speakResponse = async (text: string) => {
+    if (typeof window === "undefined") return
+
+    // Check if already speaking - if so, stop current audio first
+    if (isSpeakingRef.current) {
+      console.log("Stopping current audio to play new response")
+      stopCurrentAudio()
+      // Small delay to ensure cleanup completes
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+
+    // Stop any currently playing audio to prevent mixing
+    stopCurrentAudio()
+
+    // Clear any previous errors and reset states
+    setTtsError("")
+    setResponseText("")
+    setIsProcessing(true)
+    
+    // Stop recognition while processing/speaking to prevent new commands
+    if (recognition && isListening) {
+      try {
+        recognition.stop()
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+    
+    // Show "thinking" state (like Google Assistant)
+    setTtsStatus("thinking")
+    
+    // Natural delay before response (Google Assistant style - 300-800ms)
+    const thinkingDelay = 300 + Math.random() * 500
+    await new Promise(resolve => setTimeout(resolve, thinkingDelay))
+
+    try {
+      // Stream the response text word by word (visual feedback)
+      setTtsStatus("gemini")
+      // Show text while generating - will be cleared if TTS fails later
+      await streamResponseText(text, (chunk) => {
+        setResponseText(chunk)
+      })
+      
+      // Small pause after text is fully displayed before speaking
+      await new Promise(resolve => setTimeout(resolve, 200))
+      
+      // Get current language
       const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
-      utterance.lang = lang === "hi" ? "hi-IN" : "en-IN"
-      utterance.rate = 0.9
-      utterance.pitch = 1
-      utterance.onend = () => {
+      const speaker = lang === "hi" ? "Puck" : "Callirrhoe"
+
+      // Set status to speaking
+      setTtsStatus("speaking")
+
+      // Use Gemini TTS ONLY
+      const response = await fetch("/api/tts/gemini", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text,
+          language: lang,
+          speaker,
+        }),
+      })
+
+      if (!response.ok) {
+        // Handle HTTP errors
+        const errorText = await response.text().catch(() => "Unknown error")
+        let errorMessage = `API Error (${response.status})`
+        let errorHint = ""
+        
+        try {
+          const errorJson = JSON.parse(errorText)
+          errorMessage = errorJson.error || errorJson.details || errorMessage
+          errorHint = errorJson.hint || ""
+        } catch {
+          errorMessage = errorText.substring(0, 100) || errorMessage
+        }
+
+        // Clear response text on error - don't show written form
+        setResponseText("")
+        setTtsStatus("error")
+        setIsProcessing(false)
+        setTtsError(errorHint ? `${errorMessage} - ${errorHint}` : errorMessage)
+        console.error("Gemini TTS API error:", response.status, errorMessage, errorHint)
+        
+        // After error, start listening if still in listening mode
+        if (isListening && recognition) {
+          setTimeout(() => {
+            try {
+              recognition.start()
+            } catch (e) {
+              // Already started or error
+            }
+          }, 1000)
+        }
+        return
+      }
+
+      // Get audio blob
+      const audioBlob = await response.blob()
+      
+      // Check if response is actually audio - improved detection
+      const contentType = response.headers.get("content-type") || ""
+      const isAudioResponse = audioBlob.type.startsWith("audio/") || contentType.startsWith("audio/")
+      const isJsonError = audioBlob.type.startsWith("application/json") || contentType.startsWith("application/json")
+      
+      if (!isAudioResponse || audioBlob.size < 100 || isJsonError) {
+        // Might be JSON error response
+        try {
+          const errorText = await audioBlob.text()
+          const errorJson = JSON.parse(errorText)
+          const errorMessage = errorJson.error || errorJson.details || "Invalid audio response"
+          
+          // Clear response text on error - don't show written form
+          setResponseText("")
+          setTtsStatus("error")
+          setIsProcessing(false)
+          setTtsError(errorMessage)
+          console.error("Gemini TTS returned non-audio response:", errorMessage)
+          
+          // After error, start listening if still in listening mode
+          if (isListening && recognition) {
+            setTimeout(() => {
+              try {
+                recognition.start()
+              } catch (e) {
+                // Already started or error
+              }
+            }, 1000)
+          }
+          return
+        } catch {
+          // Clear response text on error - don't show written form
+          setResponseText("")
+          setTtsStatus("error")
+          setIsProcessing(false)
+          setTtsError("Invalid audio response from server")
+          return
+        }
+      }
+
+      // Play audio
+      const audioUrl = URL.createObjectURL(audioBlob)
+      const audio = new Audio(audioUrl)
+      
+      // Store references to track and cleanup
+      currentAudioRef.current = audio
+      currentAudioUrlRef.current = audioUrl
+      isSpeakingRef.current = true
+
+      audio.onended = () => {
+        // Cleanup
+        if (currentAudioUrlRef.current === audioUrl) {
+          URL.revokeObjectURL(audioUrl)
+          currentAudioRef.current = null
+          currentAudioUrlRef.current = null
+          isSpeakingRef.current = false
+        }
+        
+        setTtsStatus("none")
+        setIsProcessing(false)
+        // Small delay before clearing response text (like Google Assistant)
+        setTimeout(() => {
+          setResponseText("")
+        }, 500)
         // After speaking, start listening if still in listening mode
         if (isListening && recognition) {
+          // Natural delay before restarting (Google Assistant style)
+          setTimeout(() => {
+            try {
+              recognition.start()
+            } catch (e) {
+              // Already started or error
+            }
+          }, 300)
+        }
+      }
+
+      audio.onerror = (err) => {
+        // Cleanup on error
+        if (currentAudioUrlRef.current === audioUrl) {
+          URL.revokeObjectURL(audioUrl)
+          currentAudioRef.current = null
+          currentAudioUrlRef.current = null
+          isSpeakingRef.current = false
+        }
+        
+        // Clear response text on error - don't show written form
+        setResponseText("")
+        setTtsStatus("error")
+        setIsProcessing(false)
+        setTtsError("Failed to play audio")
+        console.error("Audio play error:", err)
+        
+        // After error, start listening if still in listening mode
+        if (isListening && recognition) {
+          setTimeout(() => {
+            try {
+              recognition.start()
+            } catch (e) {
+              // Already started or error
+            }
+          }, 1000)
+        }
+      }
+
+      // Play audio
+      try {
+        await audio.play()
+      } catch (playError) {
+        console.error("Error playing audio:", playError)
+        // Cleanup on play error
+        if (currentAudioUrlRef.current === audioUrl) {
+          URL.revokeObjectURL(audioUrl)
+          currentAudioRef.current = null
+          currentAudioUrlRef.current = null
+          isSpeakingRef.current = false
+        }
+        setTtsStatus("error")
+        setIsProcessing(false)
+        setTtsError("Failed to play audio")
+      }
+    } catch (error) {
+      // Cleanup on error
+      stopCurrentAudio()
+      
+      // Clear response text on error - don't show written form
+      setResponseText("")
+      setTtsStatus("error")
+      setIsProcessing(false)
+      const errorMessage = error instanceof Error ? error.message : "Failed to generate speech"
+      setTtsError(errorMessage)
+      console.error("Gemini TTS error:", error)
+      
+      // After error, start listening if still in listening mode
+      if (isListening && recognition) {
+        setTimeout(() => {
           try {
             recognition.start()
           } catch (e) {
             // Already started or error
           }
-        }
+        }, 1000)
       }
-      window.speechSynthesis.speak(utterance)
     }
   }
+
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+      stopCurrentAudio()
+    }
+  }, [])
 
   // Helper function to get contextual advice for moisture
   const getMoistureAdvice = (moisture: number, lang: string): string => {
@@ -290,9 +572,11 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
         : "To use CropMind: 1) Click profile icon and set your Blynk token, 2) View real-time sensor data in Environmental Monitoring section, 3) Get crop, fertilizer, and irrigation suggestions in AI Recommendations section, 4) Ask any question using Voice Commands like 'What is soil moisture', 5) Set your thresholds in Alert Settings, 6) View trends from Historical Data, 7) Check weather information."
     }
     
-    // What is soil moisture / मिट्टी की नमी क्या है
+    // What is soil moisture / मिट्टी की नमी क्या है (definition only, not current value)
     if ((lowerQ.includes("what is") || lowerQ.includes("क्या है")) && 
-        (lowerQ.includes("moisture") || lowerQ.includes("नमी") || lowerQ.includes("soil") || lowerQ.includes("मिट्टी"))) {
+        (lowerQ.includes("moisture") || lowerQ.includes("नमी") || lowerQ.includes("soil") || lowerQ.includes("मिट्टी")) &&
+        !lowerQ.includes("current") && !lowerQ.includes("now") && !lowerQ.includes("कितनी") && !lowerQ.includes("कितना") &&
+        !lowerQ.includes("the moisture") && !lowerQ.includes("मिट्टी की नमी कितनी")) {
       return lang === "hi"
         ? "मिट्टी की नमी मिट्टी में पानी की मात्रा है, जो प्रतिशत में मापी जाती है। 30-70 प्रतिशत आदर्श है। कम नमी से फसलें सूख सकती हैं, और अधिक नमी से जड़ें सड़ सकती हैं।"
         : "Soil moisture is the amount of water in the soil, measured in percentage. 30-70 percent is ideal. Low moisture can dry crops, and high moisture can rot roots."
@@ -408,14 +692,26 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
       onCommand(command)
     }
 
-    // First check knowledge base for general questions
-    const knowledgeAnswer = getCropMindKnowledge(command, lang)
-    if (knowledgeAnswer) {
-      speakResponse(knowledgeAnswer)
-      return
+    // Natural processing delay (Google Assistant style - makes it feel more human)
+    await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300))
+
+    // First check knowledge base for general/definition questions (before sensor data)
+    // Only check knowledge base for "what is" type questions, not current value questions
+    const isDefinitionQuestion = lowerCommand.includes("what is") || lowerCommand.includes("क्या है") ||
+                                 lowerCommand.includes("tell me about") || lowerCommand.includes("के बारे में") ||
+                                 lowerCommand.includes("explain") || lowerCommand.includes("समझाएं") ||
+                                 (lowerCommand.includes("what") && !lowerCommand.includes("current") && !lowerCommand.includes("now") && !lowerCommand.includes("कितना") && !lowerCommand.includes("कितनी"))
+    
+    if (isDefinitionQuestion) {
+      const knowledgeAnswer = getCropMindKnowledge(command, lang)
+      if (knowledgeAnswer) {
+        speakResponse(knowledgeAnswer)
+        return
+      }
     }
 
-    const token = localStorage.getItem("cropMind_blynkToken")
+    const { getActiveNodeToken } = await import("@/lib/blynk-nodes")
+    const token = getActiveNodeToken()
     const url = token ? `/api/sensors?token=${encodeURIComponent(token)}` : "/api/sensors"
 
     // Get sensor data once for all parameter questions
@@ -432,14 +728,19 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
     }
 
     // Handle parameter questions with extensive Hindi variations
+    // Check for CURRENT VALUE questions first (more specific)
     // Moisture variations: नमी, पानी, सिंचाई, मिट्टी में पानी, नमी कितनी, पानी कितना
-    if (lowerCommand.includes("moisture") || lowerCommand.includes("नमी") || lowerCommand.includes("soil") || 
-        lowerCommand.includes("मिट्टी") || lowerCommand.includes("पानी") || lowerCommand.includes("सिंचाई") ||
-        lowerCommand.includes("नमी कितनी") || lowerCommand.includes("पानी कितना") || 
-        lowerCommand.includes("मिट्टी में पानी") || lowerCommand.includes("कितनी नमी") ||
-        lowerCommand.includes("क्या है नमी") || lowerCommand.includes("नमी बताओ") ||
-        lowerCommand.includes("मिट्टी की नमी") || lowerCommand.includes("सिंचाई करनी चाहिए") ||
-        lowerCommand.includes("पानी देना चाहिए") || lowerCommand.includes("कब पानी दें")) {
+    const isMoistureQuestion = (lowerCommand.includes("moisture") || lowerCommand.includes("नमी") || 
+                                 lowerCommand.includes("पानी") || lowerCommand.includes("सिंचाई")) &&
+                                (lowerCommand.includes("कितनी") || lowerCommand.includes("कितना") || 
+                                 lowerCommand.includes("क्या है") || lowerCommand.includes("बताओ") ||
+                                 lowerCommand.includes("current") || lowerCommand.includes("now") ||
+                                 lowerCommand.includes("tell me") || lowerCommand.includes("मिट्टी की नमी") ||
+                                 lowerCommand.includes("soil moisture") || lowerCommand.includes("मिट्टी में पानी") ||
+                                 lowerCommand.includes("सिंचाई करनी चाहिए") || lowerCommand.includes("पानी देना चाहिए") ||
+                                 lowerCommand.includes("कब पानी दें") || lowerCommand.includes("when to water"))
+    
+    if (isMoistureQuestion) {
       const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
       const value = sensorData.soilMoisture.toFixed(1)
       const advice = getMoistureAdvice(sensorData.soilMoisture, lang)
@@ -448,14 +749,20 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
         : `Soil moisture is ${value} percent. ${advice}`
       speakResponse(response)
       window.dispatchEvent(new CustomEvent("voiceCommand", { detail: { command: "moisture" } }))
+      return
     } 
     // Temperature variations: तापमान, गर्मी, ठंड, तापमान कितना, कितनी गर्मी, कितनी ठंड
-    else if (lowerCommand.includes("temperature") || lowerCommand.includes("तापमान") || lowerCommand.includes("temp") ||
-             lowerCommand.includes("गर्मी") || lowerCommand.includes("ठंड") || lowerCommand.includes("तापमान कितना") ||
-             lowerCommand.includes("कितनी गर्मी") || lowerCommand.includes("कितनी ठंड") ||
-             lowerCommand.includes("क्या है तापमान") || lowerCommand.includes("तापमान बताओ") ||
-             lowerCommand.includes("गर्मी कितनी") || lowerCommand.includes("ठंड कितनी") ||
-             lowerCommand.includes("फसलों को बचाएं") || lowerCommand.includes("छाया दें")) {
+    const isTemperatureQuestion = (lowerCommand.includes("temperature") || lowerCommand.includes("तापमान") || 
+                                    lowerCommand.includes("temp") || lowerCommand.includes("गर्मी") || 
+                                    lowerCommand.includes("ठंड")) &&
+                                   (lowerCommand.includes("कितना") || lowerCommand.includes("कितनी") ||
+                                    lowerCommand.includes("क्या है") || lowerCommand.includes("बताओ") ||
+                                    lowerCommand.includes("current") || lowerCommand.includes("now") ||
+                                    lowerCommand.includes("tell me") || lowerCommand.includes("तापमान कितना") ||
+                                    lowerCommand.includes("कितनी गर्मी") || lowerCommand.includes("कितनी ठंड") ||
+                                    lowerCommand.includes("फसलों को बचाएं") || lowerCommand.includes("छाया दें"))
+    
+    if (isTemperatureQuestion) {
       const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
       const value = sensorData.temperature.toFixed(1)
       const advice = getTemperatureAdvice(sensorData.temperature, lang)
@@ -464,12 +771,16 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
         : `Temperature is ${value} degrees Celsius. ${advice}`
       speakResponse(response)
       window.dispatchEvent(new CustomEvent("voiceCommand", { detail: { command: "temperature" } }))
+      return
     } 
     // Humidity variations: आर्द्रता, नमी हवा, हवा में नमी, आर्द्रता कितनी
-    else if (lowerCommand.includes("humidity") || lowerCommand.includes("आर्द्रता") ||
-             lowerCommand.includes("नमी हवा") || lowerCommand.includes("हवा में नमी") ||
-             lowerCommand.includes("आर्द्रता कितनी") || lowerCommand.includes("क्या है आर्द्रता") ||
-             lowerCommand.includes("आर्द्रता बताओ")) {
+    const isHumidityQuestion = (lowerCommand.includes("humidity") || lowerCommand.includes("आर्द्रता") ||
+                                lowerCommand.includes("नमी हवा") || lowerCommand.includes("हवा में नमी")) &&
+                               (lowerCommand.includes("कितनी") || lowerCommand.includes("क्या है") ||
+                                lowerCommand.includes("बताओ") || lowerCommand.includes("current") ||
+                                lowerCommand.includes("now") || lowerCommand.includes("tell me"))
+    
+    if (isHumidityQuestion) {
       const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
       const value = sensorData.humidity.toFixed(1)
       const advice = getHumidityAdvice(sensorData.humidity, lang)
@@ -477,12 +788,18 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
         ? `आर्द्रता ${value} प्रतिशत है। ${advice}`
         : `Humidity is ${value} percent. ${advice}`
       speakResponse(response)
+      return
     } 
     // pH variations: पीएच, पी एच, पीएच कितना, मिट्टी का पीएच
-    else if (lowerCommand.includes("ph") || lowerCommand.includes("पीएच") || lowerCommand.includes("पी एच") ||
-             lowerCommand.includes("पीएच कितना") || lowerCommand.includes("मिट्टी का पीएच") ||
-             lowerCommand.includes("क्या है पीएच") || lowerCommand.includes("पीएच बताओ") ||
-             lowerCommand.includes("मिट्टी सुधार") || lowerCommand.includes("मिट्टी में क्या मिलाएं")) {
+    const isPhQuestion = (lowerCommand.includes("ph") || lowerCommand.includes("पीएच") || 
+                          lowerCommand.includes("पी एच")) &&
+                         (lowerCommand.includes("कितना") || lowerCommand.includes("क्या है") ||
+                          lowerCommand.includes("बताओ") || lowerCommand.includes("current") ||
+                          lowerCommand.includes("now") || lowerCommand.includes("tell me") ||
+                          lowerCommand.includes("मिट्टी का पीएच") || lowerCommand.includes("मिट्टी सुधार") ||
+                          lowerCommand.includes("मिट्टी में क्या मिलाएं"))
+    
+    if (isPhQuestion) {
       const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
       const value = sensorData.ph.toFixed(1)
       const advice = getPhAdvice(sensorData.ph, lang)
@@ -490,6 +807,7 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
         ? `पी एच मान ${value} है। ${advice}`
         : `pH value is ${value}. ${advice}`
       speakResponse(response)
+      return
     } 
     // All values variations: सभी मान, सभी जानकारी, सब कुछ बताओ, सभी डेटा
     else if (lowerCommand.includes("all") || lowerCommand.includes("सभी") || lowerCommand.includes("parameters") || 
@@ -690,6 +1008,13 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
       }
     }
     else {
+      // If no sensor data question matched, check knowledge base for general questions
+      const knowledgeAnswer = getCropMindKnowledge(command, lang)
+      if (knowledgeAnswer) {
+        speakResponse(knowledgeAnswer)
+        return
+      }
+      
       // Generic response with more options
       const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
       const response = lang === "hi"
@@ -710,6 +1035,13 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
       recognitionInstance.onresult = (event: any) => {
         // Get the latest transcript
         const transcript = event.results[event.results.length - 1][0].transcript
+        
+        // Don't process new commands if audio is currently playing
+        if (isSpeakingRef.current) {
+          console.log("Ignoring command while audio is playing:", transcript)
+          return
+        }
+        
         setTranscript(transcript)
         handleCommand(transcript)
       }
@@ -720,8 +1052,8 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
       }
 
       recognitionInstance.onend = () => {
-        // Auto-restart if still listening
-        if (isListening && recognitionInstance) {
+        // Auto-restart if still listening AND not currently speaking
+        if (isListening && recognitionInstance && !isSpeakingRef.current) {
           try {
             recognitionInstance.start()
           } catch (e) {
@@ -747,32 +1079,37 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
     }
   }, [currentLanguage, isListening])
 
-  const startListening = () => {
+  const startListening = async () => {
     if (recognition) {
       setIsListening(true)
       setTranscript("")
       
-      // Simple greeting
+      // Simple greeting with natural delay
       const greeting = currentLanguage === "hi" 
         ? "मैं आपकी कैसे मदद कर सकता हूं?"
         : "How can I help you?"
       
+      // Natural delay before greeting (Google Assistant style)
+      await new Promise(resolve => setTimeout(resolve, 400))
       speakResponse(greeting)
       
-      // Start recognition after a short delay to let greeting play
+      // Start recognition after greeting starts (longer delay for natural feel)
       setTimeout(() => {
         try {
           recognition.start()
         } catch (e) {
           // Already started or error
         }
-      }, 500)
+      }, 1200)
     } else {
       alert(currentLanguage === "hi" ? "वॉइस रिकॉग्निशन उपलब्ध नहीं है" : "Voice recognition not available")
     }
   }
 
   const stopListening = () => {
+    // Stop any playing audio
+    stopCurrentAudio()
+    
     if (recognition) {
       recognition.stop()
       setIsListening(false)
@@ -820,6 +1157,96 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
               {currentLanguage === "hi" ? "आपने कहा:" : "You said:"}
             </p>
             <p className="text-sm font-medium text-foreground">{transcript}</p>
+          </motion.div>
+        )}
+
+        {/* Thinking/Processing Indicator (Google Assistant style) */}
+        {(ttsStatus === "thinking" || (isProcessing && ttsStatus === "gemini")) && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-3 bg-white/70 dark:bg-gray-800/70 rounded-lg border border-purple-200/50 dark:border-purple-800/50"
+          >
+            <div className="flex items-center gap-2">
+              <div className="flex gap-1">
+                <motion.span
+                  className="w-2 h-2 rounded-full bg-purple-500"
+                  animate={{ opacity: [0.3, 1, 0.3] }}
+                  transition={{ duration: 1, repeat: Infinity, delay: 0 }}
+                />
+                <motion.span
+                  className="w-2 h-2 rounded-full bg-purple-500"
+                  animate={{ opacity: [0.3, 1, 0.3] }}
+                  transition={{ duration: 1, repeat: Infinity, delay: 0.2 }}
+                />
+                <motion.span
+                  className="w-2 h-2 rounded-full bg-purple-500"
+                  animate={{ opacity: [0.3, 1, 0.3] }}
+                  transition={{ duration: 1, repeat: Infinity, delay: 0.4 }}
+                />
+              </div>
+              <span className="text-sm text-muted-foreground">
+                {ttsStatus === "thinking" 
+                  ? (currentLanguage === "hi" ? "सोच रहा हूं..." : "Thinking...")
+                  : (currentLanguage === "hi" ? "प्रतिक्रिया तैयार कर रहा हूं..." : "Preparing response...")
+                }
+              </span>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Streaming Response Text (Google Assistant style) - Only show when TTS is working, not on errors */}
+        {responseText && ttsStatus !== "error" && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-3 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/30 dark:to-pink-900/30 rounded-lg border border-purple-200 dark:border-purple-800"
+          >
+            <p className="text-xs text-muted-foreground mb-1.5">
+              {currentLanguage === "hi" ? "प्रतिक्रिया:" : "Response:"}
+            </p>
+            <p className="text-sm font-medium text-foreground leading-relaxed">
+              {responseText}
+              {(ttsStatus === "gemini" || ttsStatus === "speaking") && (
+                <motion.span
+                  className="inline-block w-0.5 h-4 bg-purple-500 ml-1"
+                  animate={{ opacity: [1, 0] }}
+                  transition={{ duration: 0.8, repeat: Infinity }}
+                />
+              )}
+            </p>
+          </motion.div>
+        )}
+
+        {/* Speaking Status Indicator */}
+        {ttsStatus === "speaking" && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-xs flex items-center gap-2 p-2 rounded bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-800"
+          >
+            <motion.span
+              className="w-2 h-2 rounded-full bg-green-500"
+              animate={{ scale: [1, 1.2, 1] }}
+              transition={{ duration: 1, repeat: Infinity }}
+            />
+            <span>
+              {currentLanguage === "hi" ? "बोल रहा है..." : "Speaking..."}
+            </span>
+          </motion.div>
+        )}
+
+        {/* Error Status Indicator */}
+        {ttsStatus === "error" && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-xs flex items-center gap-2 p-2 rounded bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800"
+          >
+            <span className="w-2 h-2 rounded-full bg-red-500"></span>
+            <span className="flex-1">
+              {ttsError || (currentLanguage === "hi" ? "त्रुटि" : "Error")}
+            </span>
           </motion.div>
         )}
 

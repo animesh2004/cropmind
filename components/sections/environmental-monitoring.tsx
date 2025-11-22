@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { getTranslation } from "@/lib/translations"
+import { getActiveNodeToken } from "@/lib/blynk-nodes"
 
 type SensorResponse = {
   timestamp: string
@@ -51,15 +52,21 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
       setCurrentLanguage(newLang)
     }
 
+    // Listen for active node changes
+    const handleNodeChange = () => {
+      load() // Reload sensor data when node changes
+    }
+
     if (typeof window !== "undefined") {
       window.addEventListener("languageChanged", handleLanguageChange as EventListener)
+      window.addEventListener("activeNodeChanged", handleNodeChange as EventListener)
     }
 
     const load = async () => {
       try {
         setLoading(true)
         setError(null)
-        const token = localStorage.getItem("cropMind_blynkToken")
+        const token = getActiveNodeToken()
         const url = token ? `/api/sensors?token=${encodeURIComponent(token)}` : "/api/sensors"
         const res = await fetch(url, { cache: "no-store" })
         if (!res.ok) throw new Error("Failed to load sensors")
@@ -96,6 +103,7 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
         clearInterval(interval)
         if (typeof window !== "undefined") {
           window.removeEventListener("languageChanged", handleLanguageChange as EventListener)
+          window.removeEventListener("activeNodeChanged", handleNodeChange as EventListener)
         }
       }
   }, [language])

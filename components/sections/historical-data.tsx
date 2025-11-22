@@ -45,7 +45,8 @@ export default function HistoricalData({ language = "en" }: { language?: string 
       try {
         setLoading(true)
         setError(null)
-        const token = localStorage.getItem("cropMind_blynkToken")
+        const { getActiveNodeToken } = await import("@/lib/blynk-nodes")
+        const token = getActiveNodeToken()
         const url = token
           ? `/api/sensors/history?period=${activePeriod}&token=${encodeURIComponent(token)}`
           : `/api/sensors/history?period=${activePeriod}`

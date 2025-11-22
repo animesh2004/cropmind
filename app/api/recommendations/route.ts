@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { getKaggleRecommendations, generateRuleBasedRecommendations } from "@/lib/kaggle-ai"
+import { getGeminiRecommendations } from "@/lib/gemini-ai"
 
 type Input = {
   moisture: number
@@ -20,7 +21,28 @@ export async function POST(request: Request) {
 
     const input = { moisture, temperature, humidity }
 
-    // Try dataset-based recommendations first (most accurate)
+    // Try Gemini AI first (most intelligent and context-aware)
+    try {
+      const geminiResult = await getGeminiRecommendations(input)
+      if (geminiResult) {
+        return NextResponse.json({
+          recommendations: geminiResult.recommendations,
+          confidence: geminiResult.confidence,
+          source: "gemini",
+          crop: geminiResult.crop,
+          fertilizer: geminiResult.fertilizer,
+          soilType: geminiResult.soilType,
+          npkRatio: geminiResult.npkRatio,
+          irrigationSchedule: geminiResult.irrigationSchedule,
+          conditionMatch: geminiResult.conditionMatch,
+          idealConditions: geminiResult.idealConditions,
+        })
+      }
+    } catch (error) {
+      console.log("Gemini recommendation failed, falling back to other methods:", error)
+    }
+
+    // Try dataset-based recommendations (most accurate data-driven)
     try {
       const datasetResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/dataset/recommend`, {
         method: "POST",

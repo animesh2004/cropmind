@@ -78,7 +78,8 @@ class MonitoringService {
    */
   async checkSensors(): Promise<void> {
     try {
-      const token = localStorage.getItem("cropMind_blynkToken")
+      const { getActiveNodeToken } = await import("./blynk-nodes")
+      const token = getActiveNodeToken()
       if (!token) {
         console.warn("No Blynk token found for monitoring")
         return

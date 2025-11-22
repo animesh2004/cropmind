@@ -54,7 +54,8 @@ export default function Dashboard({ language = "en" }: { language?: string }) {
   useEffect(() => {
     const checkCriticalAlerts = async () => {
       try {
-        const token = localStorage.getItem("cropMind_blynkToken")
+        const { getActiveNodeToken } = await import("@/lib/blynk-nodes")
+        const token = getActiveNodeToken()
         const url = token ? `/api/sensors?token=${encodeURIComponent(token)}` : "/api/sensors"
         const res = await fetch(url, { cache: "no-store" })
         if (!res.ok) return

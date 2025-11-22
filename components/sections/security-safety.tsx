@@ -44,7 +44,8 @@ export default function SecuritySafety({ language = "en" }: { language?: string 
       try {
         setLoading(true)
         setError(null)
-        const token = localStorage.getItem("cropMind_blynkToken")
+        const { getActiveNodeToken } = await import("@/lib/blynk-nodes")
+        const token = getActiveNodeToken()
         const url = token ? `/api/security?token=${encodeURIComponent(token)}` : "/api/security"
         const res = await fetch(url, { cache: "no-store" })
         if (!res.ok) throw new Error("Failed to load security data")

@@ -1,6 +1,16 @@
 import { NextResponse } from "next/server"
 import { blynkStorage } from "@/lib/blynk-storage"
 
+// Sensor pin mappings
+const SENSOR_PINS = {
+  SOIL_MOISTURE: "V0",
+  PIR: "V1",
+  FLAME: "V2",
+  TEMPERATURE: "V3",
+  HUMIDITY: "V4",
+  PH: "V8",
+} as const
+
 /**
  * Blynk Webhook Endpoint
  * Supports multiple Blynk webhook formats:

@@ -4,16 +4,22 @@
  * Uses HTTP Basic Authentication: username:key
  */
 
-const KAGGLE_API_URL = process.env.KAGGLE_API_URL || ""
-const KAGGLE_API_KEY = process.env.KAGGLE_API_KEY || "b3a9bb041929fa6d6378f9086cbdf7da"
-const KAGGLE_USERNAME = process.env.KAGGLE_USERNAME || "animeshtri12"
+import {
+  getKaggleApiKey,
+  getKaggleUsername,
+  getKaggleApiUrl,
+} from "./ai"
+
+const KAGGLE_API_URL = getKaggleApiUrl()
+const KAGGLE_API_KEY = getKaggleApiKey()
+const KAGGLE_USERNAME = getKaggleUsername()
 
 /**
  * Get Kaggle API credentials for Basic Auth
  */
 function getKaggleAuth() {
-  const username = KAGGLE_USERNAME || "animeshtri12"
-  const key = KAGGLE_API_KEY || "b3a9bb041929fa6d6378f9086cbdf7da"
+  const username = KAGGLE_USERNAME
+  const key = KAGGLE_API_KEY
   return Buffer.from(`${username}:${key}`).toString("base64")
 }
 

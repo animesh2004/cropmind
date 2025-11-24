@@ -14,21 +14,24 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
   const [recognition, setRecognition] = useState<any>(null)
   const [isExamplesOpen, setIsExamplesOpen] = useState(false)
   const [currentLanguage, setCurrentLanguage] = useState(language)
-  const [ttsStatus, setTtsStatus] = useState<"gemini" | "error" | "none" | "thinking" | "speaking">("none")
+  const [ttsStatus, setTtsStatus] = useState<"generating" | "error" | "none" | "thinking" | "speaking">("none")
   const [ttsError, setTtsError] = useState<string>("")
   const [responseText, setResponseText] = useState<string>("")
   const [isProcessing, setIsProcessing] = useState(false)
   
-  // Refs to track audio and prevent overlapping
-  const currentAudioRef = useRef<HTMLAudioElement | null>(null)
-  const currentAudioUrlRef = useRef<string | null>(null)
+  // Refs to track speech and prevent overlapping
+  const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null)
   const isSpeakingRef = useRef<boolean>(false)
 
   // Listen for language changes and update from localStorage
   useEffect(() => {
-    // Get initial language from localStorage
+    // Get initial language from localStorage (safely)
+    if (typeof window !== "undefined") {
     const savedLang = localStorage.getItem("cropMind_language") || language || "en"
     setCurrentLanguage(savedLang)
+    } else {
+      setCurrentLanguage(language || "en")
+    }
 
     // Listen for language change events
     const handleLanguageChange = (event: CustomEvent) => {
@@ -36,10 +39,14 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
       setCurrentLanguage(newLang)
     }
 
+    if (typeof window !== "undefined") {
     window.addEventListener("languageChanged", handleLanguageChange as EventListener)
+    }
 
     return () => {
+      if (typeof window !== "undefined") {
       window.removeEventListener("languageChanged", handleLanguageChange as EventListener)
+      }
     }
   }, [language])
 
@@ -104,45 +111,40 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
     }
   }
 
-  // Helper function to stop any currently playing audio
+  // Helper function to stop any currently playing speech
   const stopCurrentAudio = () => {
-    if (currentAudioRef.current) {
-      try {
-        currentAudioRef.current.pause()
-        currentAudioRef.current.currentTime = 0
-        currentAudioRef.current.onended = null
-        currentAudioRef.current.onerror = null
-      } catch (e) {
-        console.error("Error stopping audio:", e)
+    try {
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel()
       }
-      currentAudioRef.current = null
-    }
-    
-    if (currentAudioUrlRef.current) {
-      try {
-        URL.revokeObjectURL(currentAudioUrlRef.current)
-      } catch (e) {
-        console.error("Error revoking audio URL:", e)
+      
+      if (currentUtteranceRef && currentUtteranceRef.current) {
+        currentUtteranceRef.current = null
       }
-      currentAudioUrlRef.current = null
+      
+      if (isSpeakingRef) {
+        isSpeakingRef.current = false
+      }
+    } catch (e) {
+      // Silently handle errors during cleanup
     }
-    
-    isSpeakingRef.current = false
   }
 
-  // Define speakResponse function - Gemini TTS ONLY with Google Assistant-like behavior
+  // Define speakResponse function - Browser TTS with Google Assistant-like behavior
   const speakResponse = async (text: string) => {
-    if (typeof window === "undefined") return
+    if (typeof window === "undefined" || !window.speechSynthesis) {
+      setTtsError(currentLanguage === "hi" ? "टेक्स्ट-टू-स्पीच समर्थित नहीं है" : "Text-to-speech is not supported")
+      return
+    }
 
-    // Check if already speaking - if so, stop current audio first
+    // Check if already speaking - if so, stop current speech first
     if (isSpeakingRef.current) {
-      console.log("Stopping current audio to play new response")
       stopCurrentAudio()
       // Small delay to ensure cleanup completes
       await new Promise(resolve => setTimeout(resolve, 100))
     }
 
-    // Stop any currently playing audio to prevent mixing
+    // Stop any currently playing speech to prevent mixing
     stopCurrentAudio()
 
     // Clear any previous errors and reset states
@@ -168,8 +170,8 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
 
     try {
       // Stream the response text word by word (visual feedback)
-      setTtsStatus("gemini")
-      // Show text while generating - will be cleared if TTS fails later
+      setTtsStatus("generating")
+      // Show text while generating
       await streamResponseText(text, (chunk) => {
         setResponseText(chunk)
       })
@@ -177,120 +179,41 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
       // Small pause after text is fully displayed before speaking
       await new Promise(resolve => setTimeout(resolve, 200))
       
-      // Get current language
-      const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
-      const speaker = lang === "hi" ? "Puck" : "Callirrhoe"
+      // Get current language (safely)
+      const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
 
       // Set status to speaking
       setTtsStatus("speaking")
-
-      // Use Gemini TTS ONLY
-      const response = await fetch("/api/tts/gemini", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          text,
-          language: lang,
-          speaker,
-        }),
-      })
-
-      if (!response.ok) {
-        // Handle HTTP errors
-        const errorText = await response.text().catch(() => "Unknown error")
-        let errorMessage = `API Error (${response.status})`
-        let errorHint = ""
-        
-        try {
-          const errorJson = JSON.parse(errorText)
-          errorMessage = errorJson.error || errorJson.details || errorMessage
-          errorHint = errorJson.hint || ""
-        } catch {
-          errorMessage = errorText.substring(0, 100) || errorMessage
-        }
-
-        // Clear response text on error - don't show written form
-        setResponseText("")
-        setTtsStatus("error")
-        setIsProcessing(false)
-        setTtsError(errorHint ? `${errorMessage} - ${errorHint}` : errorMessage)
-        console.error("Gemini TTS API error:", response.status, errorMessage, errorHint)
-        
-        // After error, start listening if still in listening mode
-        if (isListening && recognition) {
-          setTimeout(() => {
-            try {
-              recognition.start()
-            } catch (e) {
-              // Already started or error
-            }
-          }, 1000)
-        }
-        return
-      }
-
-      // Get audio blob
-      const audioBlob = await response.blob()
-      
-      // Check if response is actually audio - improved detection
-      const contentType = response.headers.get("content-type") || ""
-      const isAudioResponse = audioBlob.type.startsWith("audio/") || contentType.startsWith("audio/")
-      const isJsonError = audioBlob.type.startsWith("application/json") || contentType.startsWith("application/json")
-      
-      if (!isAudioResponse || audioBlob.size < 100 || isJsonError) {
-        // Might be JSON error response
-        try {
-          const errorText = await audioBlob.text()
-          const errorJson = JSON.parse(errorText)
-          const errorMessage = errorJson.error || errorJson.details || "Invalid audio response"
-          
-          // Clear response text on error - don't show written form
-          setResponseText("")
-          setTtsStatus("error")
-          setIsProcessing(false)
-          setTtsError(errorMessage)
-          console.error("Gemini TTS returned non-audio response:", errorMessage)
-          
-          // After error, start listening if still in listening mode
-          if (isListening && recognition) {
-            setTimeout(() => {
-              try {
-                recognition.start()
-              } catch (e) {
-                // Already started or error
-              }
-            }, 1000)
-          }
-          return
-        } catch {
-          // Clear response text on error - don't show written form
-          setResponseText("")
-          setTtsStatus("error")
-          setIsProcessing(false)
-          setTtsError("Invalid audio response from server")
-          return
-        }
-      }
-
-      // Play audio
-      const audioUrl = URL.createObjectURL(audioBlob)
-      const audio = new Audio(audioUrl)
-      
-      // Store references to track and cleanup
-      currentAudioRef.current = audio
-      currentAudioUrlRef.current = audioUrl
       isSpeakingRef.current = true
 
-      audio.onended = () => {
-        // Cleanup
-        if (currentAudioUrlRef.current === audioUrl) {
-          URL.revokeObjectURL(audioUrl)
-          currentAudioRef.current = null
-          currentAudioUrlRef.current = null
-          isSpeakingRef.current = false
-        }
+      // Cancel any existing speech
+      window.speechSynthesis.cancel()
+
+      // Create new utterance
+      const utterance = new SpeechSynthesisUtterance(text)
+      
+      // Set language
+      utterance.lang = lang === "hi" ? "hi-IN" : "en-IN"
+      
+      // Set voice properties (Google Assistant-like)
+      utterance.rate = 0.9
+      utterance.pitch = 1.0
+      utterance.volume = 1.0
+
+      // Store reference
+      currentUtteranceRef.current = utterance
+
+      // Event handlers
+      utterance.onstart = () => {
+        isSpeakingRef.current = true
+        setTtsStatus("speaking")
+      }
+
+      utterance.onend = () => {
+        isSpeakingRef.current = false
+        currentUtteranceRef.current = null
         
         setTtsStatus("none")
         setIsProcessing(false)
@@ -298,63 +221,55 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
         setTimeout(() => {
           setResponseText("")
         }, 500)
+        
         // After speaking, start listening if still in listening mode
         if (isListening && recognition) {
           // Natural delay before restarting (Google Assistant style)
           setTimeout(() => {
-            try {
-              recognition.start()
-            } catch (e) {
-              // Already started or error
-            }
+          try {
+            recognition.start()
+          } catch (e) {
+            // Already started or error
+          }
           }, 300)
         }
       }
 
-      audio.onerror = (err) => {
-        // Cleanup on error
-        if (currentAudioUrlRef.current === audioUrl) {
-          URL.revokeObjectURL(audioUrl)
-          currentAudioRef.current = null
-          currentAudioUrlRef.current = null
+      utterance.onerror = (error) => {
+        isSpeakingRef.current = false
+        currentUtteranceRef.current = null
+        
+        // Don't show alert for normal interruptions
+        if (error.error !== "interrupted" && error.error !== "canceled" && error.error !== "aborted") {
+          // Clear response text on error - don't show written form
+          setResponseText("")
+          setTtsStatus("error")
+          setIsProcessing(false)
+          const errorMsg = lang === "hi" 
+            ? "भाषण उत्पन्न करने में विफल"
+            : "Failed to generate speech"
+          setTtsError(errorMsg)
+          
+          // After error, start listening if still in listening mode
+          if (isListening && recognition) {
+            setTimeout(() => {
+              try {
+                recognition.start()
+              } catch (e) {
+                // Already started or error - silently handle
+              }
+            }, 1000)
+          }
+        } else {
+          // Normal interruption - just reset state
+          setTtsStatus("none")
+          setIsProcessing(false)
           isSpeakingRef.current = false
-        }
-        
-        // Clear response text on error - don't show written form
-        setResponseText("")
-        setTtsStatus("error")
-        setIsProcessing(false)
-        setTtsError("Failed to play audio")
-        console.error("Audio play error:", err)
-        
-        // After error, start listening if still in listening mode
-        if (isListening && recognition) {
-          setTimeout(() => {
-            try {
-              recognition.start()
-            } catch (e) {
-              // Already started or error
-            }
-          }, 1000)
         }
       }
 
-      // Play audio
-      try {
-        await audio.play()
-      } catch (playError) {
-        console.error("Error playing audio:", playError)
-        // Cleanup on play error
-        if (currentAudioUrlRef.current === audioUrl) {
-          URL.revokeObjectURL(audioUrl)
-          currentAudioRef.current = null
-          currentAudioUrlRef.current = null
-          isSpeakingRef.current = false
-        }
-        setTtsStatus("error")
-        setIsProcessing(false)
-        setTtsError("Failed to play audio")
-      }
+      // Speak
+      window.speechSynthesis.speak(utterance)
     } catch (error) {
       // Cleanup on error
       stopCurrentAudio()
@@ -363,9 +278,13 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
       setResponseText("")
       setTtsStatus("error")
       setIsProcessing(false)
-      const errorMessage = error instanceof Error ? error.message : "Failed to generate speech"
+      const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
+      const errorMessage = lang === "hi" 
+        ? "भाषण उत्पन्न करने में विफल"
+        : "Failed to generate speech"
       setTtsError(errorMessage)
-      console.error("Gemini TTS error:", error)
       
       // After error, start listening if still in listening mode
       if (isListening && recognition) {
@@ -373,7 +292,7 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
           try {
             recognition.start()
           } catch (e) {
-            // Already started or error
+            // Already started or error - silently handle
           }
         }, 1000)
       }
@@ -573,18 +492,26 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
     }
     
     // What is soil moisture / मिट्टी की नमी क्या है (definition only, not current value)
+    // Exclude "value of" questions - those should get current sensor data
     if ((lowerQ.includes("what is") || lowerQ.includes("क्या है")) && 
         (lowerQ.includes("moisture") || lowerQ.includes("नमी") || lowerQ.includes("soil") || lowerQ.includes("मिट्टी")) &&
+        !lowerQ.includes("value of") && !lowerQ.includes("value") &&
         !lowerQ.includes("current") && !lowerQ.includes("now") && !lowerQ.includes("कितनी") && !lowerQ.includes("कितना") &&
-        !lowerQ.includes("the moisture") && !lowerQ.includes("मिट्टी की नमी कितनी")) {
+        !lowerQ.includes("the moisture") && !lowerQ.includes("मिट्टी की नमी कितनी") &&
+        !lowerQ.includes("मान")) {
       return lang === "hi"
         ? "मिट्टी की नमी मिट्टी में पानी की मात्रा है, जो प्रतिशत में मापी जाती है। 30-70 प्रतिशत आदर्श है। कम नमी से फसलें सूख सकती हैं, और अधिक नमी से जड़ें सड़ सकती हैं।"
         : "Soil moisture is the amount of water in the soil, measured in percentage. 30-70 percent is ideal. Low moisture can dry crops, and high moisture can rot roots."
     }
     
-    // What is pH / पी एच क्या है
+    // What is pH / पी एच क्या है (definition only, NOT current value)
+    // Exclude "value of" questions - those should get current sensor data
     if ((lowerQ.includes("what is") || lowerQ.includes("क्या है")) && 
-        (lowerQ.includes("ph") || lowerQ.includes("पीएच") || lowerQ.includes("पी एच"))) {
+        (lowerQ.includes("ph") || lowerQ.includes("पीएच") || lowerQ.includes("पी एच")) &&
+        !lowerQ.includes("value of") && !lowerQ.includes("value") && 
+        !lowerQ.includes("कितना") && !lowerQ.includes("कितनी") &&
+        !lowerQ.includes("current") && !lowerQ.includes("now") &&
+        !lowerQ.includes("मान")) {
       return lang === "hi"
         ? "पी एच मिट्टी की अम्लीयता या क्षारीयता का माप है, 0 से 14 के पैमाने पर। 6.0 से 7.5 आदर्श है। 7 से कम अम्लीय है, 7 से अधिक क्षारीय है।"
         : "pH measures soil acidity or alkalinity on a scale of 0 to 14. 6.0 to 7.5 is ideal. Less than 7 is acidic, more than 7 is alkaline."
@@ -684,30 +611,62 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
 
   // Define handleCommand function - use useCallback to ensure it has latest currentLanguage
   const handleCommand = async (command: string) => {
-    // Get current language from localStorage to ensure we have the latest value
-    const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
-    const lowerCommand = command.toLowerCase()
+    try {
+      // Get current language from localStorage to ensure we have the latest value (safely)
+      const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
+      const lowerCommand = command.toLowerCase().trim()
+      
+      // Ignore empty commands
+      if (!lowerCommand || lowerCommand.length === 0) {
+        return
+      }
     
     if (onCommand) {
       onCommand(command)
     }
 
-    // Natural processing delay (Google Assistant style - makes it feel more human)
-    await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300))
+      // Natural processing delay (Google Assistant style - makes it feel more human)
+      await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300))
 
-    // First check knowledge base for general/definition questions (before sensor data)
-    // Only check knowledge base for "what is" type questions, not current value questions
-    const isDefinitionQuestion = lowerCommand.includes("what is") || lowerCommand.includes("क्या है") ||
-                                 lowerCommand.includes("tell me about") || lowerCommand.includes("के बारे में") ||
-                                 lowerCommand.includes("explain") || lowerCommand.includes("समझाएं") ||
-                                 (lowerCommand.includes("what") && !lowerCommand.includes("current") && !lowerCommand.includes("now") && !lowerCommand.includes("कितना") && !lowerCommand.includes("कितनी"))
+    // ALWAYS check LOCAL knowledge base FIRST for ALL questions (definitions, how-to, etc.)
+    // This ensures all answers come from LOCAL knowledge, NOT from web
+    const knowledgeAnswer = getCropMindKnowledge(command, lang)
+    if (knowledgeAnswer) {
+      speakResponse(knowledgeAnswer)
+      return // Return immediately - NO API calls for definitions
+    }
     
-    if (isDefinitionQuestion) {
-      const knowledgeAnswer = getCropMindKnowledge(command, lang)
-      if (knowledgeAnswer) {
-        speakResponse(knowledgeAnswer)
-        return
-      }
+    // Only proceed to sensor data/API calls if it's a CURRENT VALUE question
+    // Definition questions should have been handled above by local knowledge base
+    // Check for specific current value indicators (not definitions)
+    const isCurrentValueQuestion = 
+      // Explicit current value requests
+      (lowerCommand.includes("current") || lowerCommand.includes("now")) ||
+      // "Value of" questions - these want current sensor data, not definitions
+      (lowerCommand.includes("value of") || lowerCommand.includes("value") && (lowerCommand.includes("ph") || lowerCommand.includes("moisture") || lowerCommand.includes("temperature") || lowerCommand.includes("humidity"))) ||
+      // Value queries in Hindi/English
+      (lowerCommand.includes("कितना") || lowerCommand.includes("कितनी") || lowerCommand.includes("मान")) ||
+      // Specific value requests with sensor names
+      (lowerCommand.includes("मिट्टी की नमी कितनी") || (lowerCommand.includes("soil moisture") && (lowerCommand.includes("कितनी") || lowerCommand.includes("how much") || lowerCommand.includes("value")))) ||
+      (lowerCommand.includes("तापमान कितना") || (lowerCommand.includes("temperature") && (lowerCommand.includes("कितना") || lowerCommand.includes("how much") || lowerCommand.includes("value")))) ||
+      (lowerCommand.includes("आर्द्रता कितनी") || (lowerCommand.includes("humidity") && (lowerCommand.includes("कितनी") || lowerCommand.includes("how much") || lowerCommand.includes("value")))) ||
+      (lowerCommand.includes("पी एच कितना") || lowerCommand.includes("पीएच कितना") || (lowerCommand.includes("ph") && (lowerCommand.includes("कितना") || lowerCommand.includes("how much") || lowerCommand.includes("value") || lowerCommand.includes("value of")))) ||
+      // Status and all values queries
+      (lowerCommand.includes("status") || lowerCommand.includes("स्थिति")) ||
+      (lowerCommand.includes("all") || lowerCommand.includes("सभी")) ||
+      // Recommendations and weather (these need API)
+      (lowerCommand.includes("recommendation") || lowerCommand.includes("सुझाव")) ||
+      (lowerCommand.includes("weather") || lowerCommand.includes("मौसम"))
+    
+    // If it's not a current value question and not in knowledge base, give generic help from LOCAL knowledge
+    if (!isCurrentValueQuestion) {
+      const response = lang === "hi"
+        ? "मैं आपकी कैसे मदद कर सकता हूं? आप मिट्टी की नमी, तापमान, आर्द्रता, पी एच, सभी मान, सुझाव, स्थिति, मौसम, उर्वरक, सिंचाई, या CropMind के बारे में कुछ भी पूछ सकते हैं।"
+        : "How can I help you? You can ask about soil moisture, temperature, humidity, pH, all values, recommendations, status, weather, fertilizer, irrigation, or anything about CropMind."
+      speakResponse(response)
+      return // No API calls - all from local knowledge
     }
 
     const { getActiveNodeToken } = await import("@/lib/blynk-nodes")
@@ -717,8 +676,31 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
     // Get sensor data once for all parameter questions
     let sensorData: any = null
     try {
-      const res = await fetch(url)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
+      
+      const res = await fetch(url, { 
+        cache: "no-store",
+        signal: controller.signal
+      })
+      
+      clearTimeout(timeoutId)
+      
+      if (!res.ok) {
+        throw new Error("Failed to fetch sensor data")
+      }
       sensorData = await res.json()
+      
+      // Validate sensor data structure
+      if (!sensorData || typeof sensorData !== "object") {
+        throw new Error("Invalid sensor data format")
+      }
+      
+      // Ensure all required properties exist with defaults
+      if (typeof sensorData.soilMoisture !== "number") sensorData.soilMoisture = 0
+      if (typeof sensorData.temperature !== "number") sensorData.temperature = 0
+      if (typeof sensorData.humidity !== "number") sensorData.humidity = 0
+      if (typeof sensorData.ph !== "number") sensorData.ph = 7.0
     } catch (error) {
       const response = lang === "hi"
         ? "सेंसर डेटा लोड करने में त्रुटि हुई"
@@ -741,14 +723,25 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
                                  lowerCommand.includes("कब पानी दें") || lowerCommand.includes("when to water"))
     
     if (isMoistureQuestion) {
-      const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
-      const value = sensorData.soilMoisture.toFixed(1)
-      const advice = getMoistureAdvice(sensorData.soilMoisture, lang)
+      const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
+      if (!sensorData || typeof sensorData.soilMoisture !== "number") {
+        const response = lang === "hi"
+          ? "मिट्टी की नमी डेटा उपलब्ध नहीं है"
+          : "Soil moisture data not available"
+        speakResponse(response)
+        return
+      }
+      const value = Number(sensorData.soilMoisture).toFixed(1)
+      const advice = getMoistureAdvice(Number(sensorData.soilMoisture), lang)
       const response = lang === "hi"
         ? `मिट्टी की नमी ${value} प्रतिशत है। ${advice}`
         : `Soil moisture is ${value} percent. ${advice}`
       speakResponse(response)
+      if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("voiceCommand", { detail: { command: "moisture" } }))
+      }
       return
     } 
     // Temperature variations: तापमान, गर्मी, ठंड, तापमान कितना, कितनी गर्मी, कितनी ठंड
@@ -759,18 +752,29 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
                                     lowerCommand.includes("क्या है") || lowerCommand.includes("बताओ") ||
                                     lowerCommand.includes("current") || lowerCommand.includes("now") ||
                                     lowerCommand.includes("tell me") || lowerCommand.includes("तापमान कितना") ||
-                                    lowerCommand.includes("कितनी गर्मी") || lowerCommand.includes("कितनी ठंड") ||
+             lowerCommand.includes("कितनी गर्मी") || lowerCommand.includes("कितनी ठंड") ||
                                     lowerCommand.includes("फसलों को बचाएं") || lowerCommand.includes("छाया दें"))
     
     if (isTemperatureQuestion) {
-      const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
-      const value = sensorData.temperature.toFixed(1)
-      const advice = getTemperatureAdvice(sensorData.temperature, lang)
+      const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
+      if (!sensorData || typeof sensorData.temperature !== "number") {
+        const response = lang === "hi"
+          ? "तापमान डेटा उपलब्ध नहीं है"
+          : "Temperature data not available"
+        speakResponse(response)
+        return
+      }
+      const value = Number(sensorData.temperature).toFixed(1)
+      const advice = getTemperatureAdvice(Number(sensorData.temperature), lang)
       const response = lang === "hi"
         ? `तापमान ${value} डिग्री सेल्सियस है। ${advice}`
         : `Temperature is ${value} degrees Celsius. ${advice}`
       speakResponse(response)
+      if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("voiceCommand", { detail: { command: "temperature" } }))
+      }
       return
     } 
     // Humidity variations: आर्द्रता, नमी हवा, हवा में नमी, आर्द्रता कितनी
@@ -781,9 +785,18 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
                                 lowerCommand.includes("now") || lowerCommand.includes("tell me"))
     
     if (isHumidityQuestion) {
-      const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
-      const value = sensorData.humidity.toFixed(1)
-      const advice = getHumidityAdvice(sensorData.humidity, lang)
+      const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
+      if (!sensorData || typeof sensorData.humidity !== "number") {
+        const response = lang === "hi"
+          ? "आर्द्रता डेटा उपलब्ध नहीं है"
+          : "Humidity data not available"
+        speakResponse(response)
+        return
+      }
+      const value = Number(sensorData.humidity).toFixed(1)
+      const advice = getHumidityAdvice(Number(sensorData.humidity), lang)
       const response = lang === "hi"
         ? `आर्द्रता ${value} प्रतिशत है। ${advice}`
         : `Humidity is ${value} percent. ${advice}`
@@ -800,9 +813,18 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
                           lowerCommand.includes("मिट्टी में क्या मिलाएं"))
     
     if (isPhQuestion) {
-      const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
-      const value = sensorData.ph.toFixed(1)
-      const advice = getPhAdvice(sensorData.ph, lang)
+      const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
+      if (!sensorData || typeof sensorData.ph !== "number") {
+        const response = lang === "hi"
+          ? "पी एच डेटा उपलब्ध नहीं है"
+          : "pH data not available"
+        speakResponse(response)
+        return
+      }
+      const value = Number(sensorData.ph).toFixed(1)
+      const advice = getPhAdvice(Number(sensorData.ph), lang)
       const response = lang === "hi"
         ? `पी एच मान ${value} है। ${advice}`
         : `pH value is ${value}. ${advice}`
@@ -814,10 +836,23 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
              lowerCommand.includes("मान") || lowerCommand.includes("सभी जानकारी") || lowerCommand.includes("सब कुछ बताओ") ||
              lowerCommand.includes("सभी डेटा") || lowerCommand.includes("सभी मान बताओ") ||
              lowerCommand.includes("क्या है सभी मान") || lowerCommand.includes("सभी जानकारी दो")) {
-      const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
+      const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
+      if (!sensorData) {
+        const response = lang === "hi"
+          ? "सेंसर डेटा उपलब्ध नहीं है"
+          : "Sensor data not available"
+        speakResponse(response)
+        return
+      }
+      const moisture = typeof sensorData.soilMoisture === "number" ? Number(sensorData.soilMoisture).toFixed(1) : "0.0"
+      const temp = typeof sensorData.temperature === "number" ? Number(sensorData.temperature).toFixed(1) : "0.0"
+      const humidity = typeof sensorData.humidity === "number" ? Number(sensorData.humidity).toFixed(1) : "0.0"
+      const ph = typeof sensorData.ph === "number" ? Number(sensorData.ph).toFixed(1) : "7.0"
       const values = lang === "hi"
-        ? `सभी मान: मिट्टी की नमी ${sensorData.soilMoisture.toFixed(1)} प्रतिशत, तापमान ${sensorData.temperature.toFixed(1)} डिग्री सेल्सियस, आर्द्रता ${sensorData.humidity.toFixed(1)} प्रतिशत, और पी एच ${sensorData.ph.toFixed(1)} है।`
-        : `All values: Soil moisture ${sensorData.soilMoisture.toFixed(1)} percent, Temperature ${sensorData.temperature.toFixed(1)} degrees Celsius, Humidity ${sensorData.humidity.toFixed(1)} percent, and pH ${sensorData.ph.toFixed(1)}.`
+        ? `सभी मान: मिट्टी की नमी ${moisture} प्रतिशत, तापमान ${temp} डिग्री सेल्सियस, आर्द्रता ${humidity} प्रतिशत, और पी एच ${ph} है।`
+        : `All values: Soil moisture ${moisture} percent, Temperature ${temp} degrees Celsius, Humidity ${humidity} percent, and pH ${ph}.`
       const status = getOverallStatus(sensorData, lang)
       const response = `${values} ${status}`
       speakResponse(response)
@@ -833,6 +868,9 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
              lowerCommand.includes("कौन सी फसल उगाएं") || lowerCommand.includes("फसल सुझाव")) {
       // Get recommendations via API
       try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+        
         const recRes = await fetch("/api/recommendations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -841,22 +879,35 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
             temperature: sensorData.temperature,
             humidity: sensorData.humidity,
           }),
+          signal: controller.signal
         })
+        
+        clearTimeout(timeoutId)
+        
+        if (!recRes.ok) {
+          throw new Error("Failed to fetch recommendations")
+        }
+        
         const recData = await recRes.json()
         
-        const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
-        if (recData.crop || (recData.recommendations && recData.recommendations.length > 0)) {
-          const crop = recData.crop || recData.recommendations[0]
+        const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
+        if (recData && (recData.crop || (recData.recommendations && Array.isArray(recData.recommendations) && recData.recommendations.length > 0))) {
+          const crop = recData.crop || (recData.recommendations && recData.recommendations[0]) || "Wheat"
           const soilType = recData.soilType || "Loamy Soil"
           const fertilizer = recData.fertilizer || recData.npkRatio || "80-40-40"
           const irrigation = recData.irrigationSchedule || "Moderate"
-          const otherCrops = recData.recommendations && recData.recommendations.length > 1 
-            ? recData.recommendations.slice(1, 3).join(", ")
+          const otherCrops = recData.recommendations && Array.isArray(recData.recommendations) && recData.recommendations.length > 1 
+            ? recData.recommendations.slice(1, 3).filter(Boolean).join(", ")
             : ""
           
+          const moisture = sensorData && typeof sensorData.soilMoisture === "number" ? Number(sensorData.soilMoisture).toFixed(1) : "0.0"
+          const temp = sensorData && typeof sensorData.temperature === "number" ? Number(sensorData.temperature).toFixed(1) : "0.0"
+          
           const response = lang === "hi"
-            ? `आपके लिए सुझावित फसल ${crop} है। मिट्टी का प्रकार: ${soilType}। उर्वरक: ${fertilizer}। सिंचाई: ${irrigation}। ${otherCrops ? `अन्य विकल्प: ${otherCrops}।` : ""} मिट्टी की नमी ${sensorData.soilMoisture.toFixed(1)} प्रतिशत और तापमान ${sensorData.temperature.toFixed(1)} डिग्री के लिए यह फसल उपयुक्त है।`
-            : `Recommended crop for you is ${crop}. Soil type: ${soilType}. Fertilizer: ${fertilizer}. Irrigation: ${irrigation}. ${otherCrops ? `Other options: ${otherCrops}.` : ""} This crop is suitable for soil moisture ${sensorData.soilMoisture.toFixed(1)} percent and temperature ${sensorData.temperature.toFixed(1)} degrees.`
+            ? `आपके लिए सुझावित फसल ${crop} है। मिट्टी का प्रकार: ${soilType}। उर्वरक: ${fertilizer}। सिंचाई: ${irrigation}। ${otherCrops ? `अन्य विकल्प: ${otherCrops}।` : ""} मिट्टी की नमी ${moisture} प्रतिशत और तापमान ${temp} डिग्री के लिए यह फसल उपयुक्त है।`
+            : `Recommended crop for you is ${crop}. Soil type: ${soilType}. Fertilizer: ${fertilizer}. Irrigation: ${irrigation}. ${otherCrops ? `Other options: ${otherCrops}.` : ""} This crop is suitable for soil moisture ${moisture} percent and temperature ${temp} degrees.`
           speakResponse(response)
         } else {
           const response = lang === "hi"
@@ -865,7 +916,9 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
           speakResponse(response)
         }
       } catch (error) {
-        const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
+        const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
         const response = lang === "hi"
           ? "सुझाव प्राप्त करने में त्रुटि हुई"
           : "Error getting recommendations"
@@ -883,7 +936,9 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
              lowerCommand.includes("all okay") || lowerCommand.includes("all right") ||
              lowerCommand.includes("सब ठीक") || lowerCommand.includes("क्या सब ठीक")) {
       // Overall status with actionable advice
-      const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
+      const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
       const response = getOverallStatus(sensorData, lang)
       speakResponse(response)
     } 
@@ -894,36 +949,56 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
              lowerCommand.includes("कल का मौसम") || lowerCommand.includes("मौसम के अनुसार")) {
       // Fetch weather data
       try {
-        const savedLocation = localStorage.getItem("cropMind_location") || "Gorakhpur"
-        const weatherRes = await fetch(`/api/weather?location=${encodeURIComponent(savedLocation)}`)
-        const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
+        const savedLocation = typeof window !== "undefined" 
+          ? (localStorage.getItem("cropMind_location") || "Gorakhpur")
+          : "Gorakhpur"
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+        
+        const weatherRes = await fetch(`/api/weather?location=${encodeURIComponent(savedLocation)}`, {
+          signal: controller.signal
+        })
+        
+        clearTimeout(timeoutId)
+        
+        const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
         if (weatherRes.ok) {
           const weatherData = await weatherRes.json()
+          
+          // Validate weather data
+          if (!weatherData || typeof weatherData !== "object") {
+            throw new Error("Invalid weather data")
+          }
+          
           const conditionText = translateWeatherCondition(weatherData.condition || "")
+          const temperature = typeof weatherData.temperature === "number" ? weatherData.temperature : 25
+          const rainChance = typeof weatherData.rainChance === "number" ? weatherData.rainChance : 0
           
           // Add farming advice based on weather
           let weatherAdvice = ""
-          if (weatherData.rainChance > 70) {
+          if (rainChance > 70) {
             weatherAdvice = lang === "hi"
               ? "बारिश की अधिक संभावना है। सिंचाई रोकें। फसलों को बारिश से बचाएं।"
               : "High chance of rain. Stop irrigation. Protect crops from rain."
-          } else if (weatherData.rainChance > 40) {
+          } else if (rainChance > 40) {
             weatherAdvice = lang === "hi"
               ? "बारिश की संभावना है। सिंचाई कम करें।"
               : "Chance of rain. Reduce irrigation."
-          } else if (weatherData.temperature > 35) {
+          } else if (temperature > 35) {
             weatherAdvice = lang === "hi"
               ? "गर्मी अधिक है। फसलों को छाया दें। दिन में दो बार पानी दें।"
               : "It's very hot. Provide shade to crops. Water twice a day."
-          } else if (weatherData.temperature < 15) {
+          } else if (temperature < 15) {
             weatherAdvice = lang === "hi"
               ? "ठंड है। नाजुक फसलों को ढकें।"
               : "It's cold. Cover delicate crops."
           }
           
           const response = lang === "hi"
-            ? `आज का मौसम: तापमान ${weatherData.temperature} डिग्री सेल्सियस, ${conditionText}, बारिश की संभावना ${weatherData.rainChance} प्रतिशत है। ${weatherAdvice}`
-            : `Today's weather: Temperature ${weatherData.temperature} degrees Celsius, ${weatherData.condition}, rain chance ${weatherData.rainChance} percent. ${weatherAdvice}`
+            ? `आज का मौसम: तापमान ${temperature} डिग्री सेल्सियस, ${conditionText}, बारिश की संभावना ${rainChance} प्रतिशत है। ${weatherAdvice}`
+            : `Today's weather: Temperature ${temperature} degrees Celsius, ${weatherData.condition || "Clear"}, rain chance ${rainChance} percent. ${weatherAdvice}`
           speakResponse(response)
         } else {
           const response = lang === "hi"
@@ -932,7 +1007,9 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
           speakResponse(response)
         }
       } catch (error) {
-        const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
+        const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
         const response = lang === "hi"
           ? "मौसम की जानकारी प्राप्त करने में त्रुटि हुई"
           : "Error getting weather information"
@@ -944,7 +1021,9 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
              lowerCommand.includes("क्या पूछ सकते हैं") || lowerCommand.includes("क्या कर सकता है") ||
              lowerCommand.includes("क्या कर सकते हैं") || lowerCommand.includes("what can you") ||
              lowerCommand.includes("क्या पूछ सकता हूं") || lowerCommand.includes("क्या जान सकते हैं")) {
-      const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
+      const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
       const response = lang === "hi"
         ? "मैं आपकी कैसे मदद कर सकता हूं? आप मिट्टी की नमी, तापमान, आर्द्रता, पी एच, सभी मान, सुझाव, स्थिति, मौसम, उर्वरक, सिंचाई, ऐतिहासिक डेटा, सुरक्षा, अलर्ट सेटिंग्स, या CropMind के बारे में कुछ भी पूछ सकते हैं।"
         : "How can I help you? You can ask about soil moisture, temperature, humidity, pH, all values, recommendations, status, weather, fertilizer, irrigation, historical data, security, alert settings, or anything about CropMind."
@@ -954,7 +1033,9 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
     else if (lowerCommand.includes("feature") || lowerCommand.includes("सुविधा") || 
              lowerCommand.includes("what does") || lowerCommand.includes("क्या करता है") ||
              lowerCommand.includes("capability") || lowerCommand.includes("क्षमता")) {
-      const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
+      const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
       const response = lang === "hi"
         ? "CropMind की मुख्य सुविधाएं: 1) वास्तविक समय पर्यावरण निगरानी, 2) AI-संचालित फसल सिफारिशें, 3) मौसम एकीकरण, 4) वॉइस कमांड, 5) ऐतिहासिक डेटा और ग्राफ, 6) सुरक्षा अलर्ट, 7) CSV डाउनलोड, 8) कस्टम अलर्ट थ्रेशोल्ड।"
         : "CropMind main features: 1) Real-time environmental monitoring, 2) AI-powered crop recommendations, 3) Weather integration, 4) Voice commands, 5) Historical data and graphs, 6) Security alerts, 7) CSV download, 8) Custom alert thresholds."
@@ -963,14 +1044,24 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
     // When questions / कब प्रश्न
     else if (lowerCommand.includes("when") || lowerCommand.includes("कब") || 
              lowerCommand.includes("किस समय") || lowerCommand.includes("किस दिन")) {
-      const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
+      const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
       if (lowerCommand.includes("water") || lowerCommand.includes("पानी") || lowerCommand.includes("सिंचाई")) {
-        const advice = sensorData.soilMoisture < 30 
+        if (!sensorData || typeof sensorData.soilMoisture !== "number") {
+          const response = lang === "hi"
+            ? "मिट्टी की नमी डेटा उपलब्ध नहीं है"
+            : "Soil moisture data not available"
+          speakResponse(response)
+          return
+        }
+        const moisture = Number(sensorData.soilMoisture)
+        const advice = moisture < 30 
           ? (lang === "hi" ? "तुरंत पानी दें।" : "Water immediately.")
           : (lang === "hi" ? "सुबह 6-8 बजे सिंचाई करना सबसे अच्छा है।" : "Best time is 6-8 AM.")
         const response = lang === "hi"
-          ? `मिट्टी की नमी ${sensorData.soilMoisture.toFixed(1)} प्रतिशत है। ${advice}`
-          : `Soil moisture is ${sensorData.soilMoisture.toFixed(1)} percent. ${advice}`
+          ? `मिट्टी की नमी ${moisture.toFixed(1)} प्रतिशत है। ${advice}`
+          : `Soil moisture is ${moisture.toFixed(1)} percent. ${advice}`
         speakResponse(response)
       } else {
         const response = lang === "hi"
@@ -982,7 +1073,9 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
     // Why questions / क्यों प्रश्न
     else if (lowerCommand.includes("why") || lowerCommand.includes("क्यों") || 
              lowerCommand.includes("reason") || lowerCommand.includes("कारण")) {
-      const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
+      const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
       const response = lang === "hi"
         ? "मैं आपके प्रश्न को बेहतर समझने के लिए, कृपया विशिष्ट रूप से पूछें। उदाहरण: क्यों नमी कम है? या क्यों यह फसल सुझाई गई है?"
         : "To better understand your question, please ask specifically. Example: Why is moisture low? Or why is this crop recommended?"
@@ -991,14 +1084,24 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
     // How much / कितना प्रश्न
     else if (lowerCommand.includes("how much") || lowerCommand.includes("कितना") || 
              lowerCommand.includes("कितनी") || lowerCommand.includes("quantity")) {
-      const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
+      const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
       if (lowerCommand.includes("water") || lowerCommand.includes("पानी")) {
-        const amount = sensorData.soilMoisture < 30 
+        if (!sensorData || typeof sensorData.soilMoisture !== "number") {
+          const response = lang === "hi"
+            ? "मिट्टी की नमी डेटा उपलब्ध नहीं है"
+            : "Soil moisture data not available"
+          speakResponse(response)
+          return
+        }
+        const moisture = Number(sensorData.soilMoisture)
+        const amount = moisture < 30 
           ? (lang === "hi" ? "20-30 मिनट तक पानी दें" : "Water for 20-30 minutes")
           : (lang === "hi" ? "10-15 मिनट तक पानी दें" : "Water for 10-15 minutes")
         const response = lang === "hi"
-          ? `मिट्टी की नमी ${sensorData.soilMoisture.toFixed(1)} प्रतिशत है। ${amount}।`
-          : `Soil moisture is ${sensorData.soilMoisture.toFixed(1)} percent. ${amount}.`
+          ? `मिट्टी की नमी ${moisture.toFixed(1)} प्रतिशत है। ${amount}।`
+          : `Soil moisture is ${moisture.toFixed(1)} percent. ${amount}.`
         speakResponse(response)
       } else {
         const response = lang === "hi"
@@ -1016,10 +1119,22 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
       }
       
       // Generic response with more options
-      const lang = localStorage.getItem("cropMind_language") || currentLanguage || "en"
+      const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
       const response = lang === "hi"
         ? "मैं आपकी कैसे मदद कर सकता हूं? आप मिट्टी की नमी, तापमान, आर्द्रता, पी एच, सभी मान, सुझाव, स्थिति, मौसम, उर्वरक, सिंचाई, या CropMind के बारे में कुछ भी पूछ सकते हैं। यदि मैं समझ नहीं पाया, तो कृपया फिर से पूछें।"
         : "How can I help you? You can ask about soil moisture, temperature, humidity, pH, all values, recommendations, status, weather, fertilizer, irrigation, or anything about CropMind. If I didn't understand, please ask again."
+      speakResponse(response)
+    }
+    } catch (error) {
+      // Handle any unexpected errors in command processing
+      const lang = typeof window !== "undefined" 
+        ? (localStorage.getItem("cropMind_language") || currentLanguage || "en")
+        : (currentLanguage || "en")
+      const response = lang === "hi"
+        ? "कृपया फिर से पूछें"
+        : "Please ask again"
       speakResponse(response)
     }
   }
@@ -1033,22 +1148,63 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
       recognitionInstance.lang = currentLanguage === "hi" ? "hi-IN" : "en-IN"
 
       recognitionInstance.onresult = (event: any) => {
-        // Get the latest transcript
-        const transcript = event.results[event.results.length - 1][0].transcript
-        
-        // Don't process new commands if audio is currently playing
-        if (isSpeakingRef.current) {
-          console.log("Ignoring command while audio is playing:", transcript)
-          return
-        }
-        
+        try {
+          // Safely get the latest transcript
+          if (!event.results || event.results.length === 0) {
+            return
+          }
+          
+          const lastResult = event.results[event.results.length - 1]
+          if (!lastResult || !lastResult[0] || !lastResult[0].transcript) {
+            return
+          }
+          
+          const transcript = lastResult[0].transcript.trim()
+          
+          // Ignore empty transcripts
+          if (!transcript || transcript.length === 0) {
+            return
+          }
+          
+          // Don't process new commands if audio is currently playing
+          if (isSpeakingRef.current) {
+            return
+          }
+          
         setTranscript(transcript)
-        handleCommand(transcript)
+          handleCommand(transcript).catch((err) => {
+            // Silently handle command errors
+            setTtsStatus("error")
+            setIsProcessing(false)
+          })
+        } catch (err) {
+          // Silently handle errors
+          setTtsStatus("error")
+          setIsProcessing(false)
+        }
       }
 
       recognitionInstance.onerror = (error: any) => {
-        console.error("Speech recognition error:", error)
+        // Only handle critical errors, ignore common ones
+        if (error.error === "no-speech" || error.error === "aborted") {
+          // These are normal - don't stop listening
+          return
+        }
+        
+        // For other errors, stop listening
+        if (error.error === "not-allowed") {
+          setIsListening(false)
+          setTtsError(currentLanguage === "hi" 
+            ? "माइक्रोफोन अनुमति आवश्यक है" 
+            : "Microphone permission required")
+        } else if (error.error === "network") {
+          setIsListening(false)
+          setTtsError(currentLanguage === "hi" 
+            ? "नेटवर्क त्रुटि" 
+            : "Network error")
+        } else {
         setIsListening(false)
+        }
       }
 
       recognitionInstance.onend = () => {
@@ -1161,7 +1317,7 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
         )}
 
         {/* Thinking/Processing Indicator (Google Assistant style) */}
-        {(ttsStatus === "thinking" || (isProcessing && ttsStatus === "gemini")) && (
+        {(ttsStatus === "thinking" || (isProcessing && ttsStatus === "generating")) && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -1202,12 +1358,9 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
             animate={{ opacity: 1, y: 0 }}
             className="p-3 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/30 dark:to-pink-900/30 rounded-lg border border-purple-200 dark:border-purple-800"
           >
-            <p className="text-xs text-muted-foreground mb-1.5">
-              {currentLanguage === "hi" ? "प्रतिक्रिया:" : "Response:"}
-            </p>
             <p className="text-sm font-medium text-foreground leading-relaxed">
               {responseText}
-              {(ttsStatus === "gemini" || ttsStatus === "speaking") && (
+              {(ttsStatus === "generating" || ttsStatus === "speaking") && (
                 <motion.span
                   className="inline-block w-0.5 h-4 bg-purple-500 ml-1"
                   animate={{ opacity: [1, 0] }}
@@ -1268,21 +1421,129 @@ export default function VoiceCommands({ language = "en", onCommand }: { language
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent className="mt-2">
-            <div className="text-xs text-muted-foreground space-y-1 p-3 bg-muted/50 rounded-lg">
-              <ul className="list-disc list-inside space-y-1 ml-2">
+            <div className="text-xs text-muted-foreground space-y-2 p-3 bg-muted/50 rounded-lg max-h-[400px] overflow-y-auto">
+              {/* Current Values Section */}
+              <div className="space-y-1">
+                <p className="font-semibold text-foreground mb-1">
+                  {currentLanguage === "hi" ? "📊 वर्तमान मान (Current Values)" : "📊 Current Values"}
+                </p>
+                <ul className="list-disc list-inside space-y-0.5 ml-2">
+                  <li>{currentLanguage === "hi" ? "मिट्टी की नमी कितनी है?" : "What is the value of soil moisture?"}</li>
+                  <li>{currentLanguage === "hi" ? "तापमान कितना है?" : "What is the temperature?"}</li>
+                  <li>{currentLanguage === "hi" ? "आर्द्रता कितनी है?" : "What is the humidity?"}</li>
+                  <li>{currentLanguage === "hi" ? "पी एच का मान क्या है?" : "What is the value of pH?"}</li>
+                  <li>{currentLanguage === "hi" ? "सभी मान बताओ" : "Tell me all values"}</li>
+                  <li>{currentLanguage === "hi" ? "वर्तमान तापमान" : "Current temperature"}</li>
+                  <li>{currentLanguage === "hi" ? "अभी की नमी" : "Current moisture"}</li>
+                </ul>
+              </div>
+
+              {/* Definitions Section */}
+              <div className="space-y-1">
+                <p className="font-semibold text-foreground mb-1">
+                  {currentLanguage === "hi" ? "📖 परिभाषाएं (Definitions)" : "📖 Definitions"}
+                </p>
+                <ul className="list-disc list-inside space-y-0.5 ml-2">
                 <li>{currentLanguage === "hi" ? "मिट्टी की नमी क्या है?" : "What is soil moisture?"}</li>
-                <li>{currentLanguage === "hi" ? "पानी कितना है?" : "How much water?"}</li>
-                <li>{currentLanguage === "hi" ? "तापमान बताओ" : "Tell me temperature"}</li>
+                  <li>{currentLanguage === "hi" ? "पी एच क्या है?" : "What is pH?"}</li>
+                  <li>{currentLanguage === "hi" ? "CropMind क्या है?" : "What is CropMind?"}</li>
+                  <li>{currentLanguage === "hi" ? "उर्वरक क्या है?" : "What is fertilizer?"}</li>
+                  <li>{currentLanguage === "hi" ? "सिंचाई क्या है?" : "What is irrigation?"}</li>
+                </ul>
+              </div>
+
+              {/* Status & Advice Section */}
+              <div className="space-y-1">
+                <p className="font-semibold text-foreground mb-1">
+                  {currentLanguage === "hi" ? "✅ स्थिति और सलाह (Status & Advice)" : "✅ Status & Advice"}
+                </p>
+                <ul className="list-disc list-inside space-y-0.5 ml-2">
+                  <li>{currentLanguage === "hi" ? "क्या सब ठीक है?" : "Is everything okay?"}</li>
+                  <li>{currentLanguage === "hi" ? "स्थिति कैसी है?" : "What is the status?"}</li>
+                  <li>{currentLanguage === "hi" ? "क्या करना चाहिए?" : "What should I do?"}</li>
+                  <li>{currentLanguage === "hi" ? "सुझाव दो" : "Give me advice"}</li>
+                  <li>{currentLanguage === "hi" ? "फसलों की स्थिति" : "Crop status"}</li>
+                </ul>
+              </div>
+
+              {/* Recommendations Section */}
+              <div className="space-y-1">
+                <p className="font-semibold text-foreground mb-1">
+                  {currentLanguage === "hi" ? "🌾 फसल सुझाव (Crop Recommendations)" : "🌾 Crop Recommendations"}
+                </p>
+                <ul className="list-disc list-inside space-y-0.5 ml-2">
                 <li>{currentLanguage === "hi" ? "कौन सी फसल लगाएं?" : "Which crop should I plant?"}</li>
+                  <li>{currentLanguage === "hi" ? "फसल का सुझाव" : "Crop recommendation"}</li>
+                  <li>{currentLanguage === "hi" ? "सर्वश्रेष्ठ फसल कौन सी है?" : "What is the best crop?"}</li>
+                  <li>{currentLanguage === "hi" ? "क्या लगाना चाहिए?" : "What should I plant?"}</li>
+                </ul>
+              </div>
+
+              {/* Weather Section */}
+              <div className="space-y-1">
+                <p className="font-semibold text-foreground mb-1">
+                  {currentLanguage === "hi" ? "🌤️ मौसम (Weather)" : "🌤️ Weather"}
+                </p>
+                <ul className="list-disc list-inside space-y-0.5 ml-2">
                 <li>{currentLanguage === "hi" ? "मौसम कैसा है?" : "How is the weather?"}</li>
-                <li>{currentLanguage === "hi" ? "क्या सब ठीक है?" : "Is everything okay?"}</li>
-                <li>{currentLanguage === "hi" ? "CropMind क्या है?" : "What is CropMind?"}</li>
-                <li>{currentLanguage === "hi" ? "कैसे उपयोग करें?" : "How to use?"}</li>
+                  <li>{currentLanguage === "hi" ? "आज का मौसम" : "Today's weather"}</li>
+                  <li>{currentLanguage === "hi" ? "क्या बारिश होगी?" : "Will it rain?"}</li>
+                  <li>{currentLanguage === "hi" ? "मौसम के अनुसार सिंचाई" : "Irrigation according to weather"}</li>
+                </ul>
+              </div>
+
+              {/* Irrigation & Watering Section */}
+              <div className="space-y-1">
+                <p className="font-semibold text-foreground mb-1">
+                  {currentLanguage === "hi" ? "💧 सिंचाई (Irrigation)" : "💧 Irrigation"}
+                </p>
+                <ul className="list-disc list-inside space-y-0.5 ml-2">
                 <li>{currentLanguage === "hi" ? "कब पानी दें?" : "When to water?"}</li>
+                  <li>{currentLanguage === "hi" ? "कितना पानी दें?" : "How much water?"}</li>
+                  <li>{currentLanguage === "hi" ? "पानी कितना है?" : "How much water is there?"}</li>
+                  <li>{currentLanguage === "hi" ? "सिंचाई करनी चाहिए?" : "Should I irrigate?"}</li>
+                  <li>{currentLanguage === "hi" ? "पानी का समय" : "Watering time"}</li>
+                </ul>
+              </div>
+
+              {/* Fertilizer Section */}
+              <div className="space-y-1">
+                <p className="font-semibold text-foreground mb-1">
+                  {currentLanguage === "hi" ? "🌱 उर्वरक (Fertilizer)" : "🌱 Fertilizer"}
+                </p>
+                <ul className="list-disc list-inside space-y-0.5 ml-2">
                 <li>{currentLanguage === "hi" ? "कौन सा उर्वरक?" : "Which fertilizer?"}</li>
+                  <li>{currentLanguage === "hi" ? "कब उर्वरक दें?" : "When to apply fertilizer?"}</li>
+                  <li>{currentLanguage === "hi" ? "कितना उर्वरक?" : "How much fertilizer?"}</li>
+                  <li>{currentLanguage === "hi" ? "NPK अनुपात क्या है?" : "What is NPK ratio?"}</li>
+                </ul>
+              </div>
+
+              {/* How-to & Features Section */}
+              <div className="space-y-1">
+                <p className="font-semibold text-foreground mb-1">
+                  {currentLanguage === "hi" ? "❓ कैसे उपयोग करें (How-to)" : "❓ How-to & Features"}
+                </p>
+                <ul className="list-disc list-inside space-y-0.5 ml-2">
+                  <li>{currentLanguage === "hi" ? "कैसे उपयोग करें?" : "How to use?"}</li>
                 <li>{currentLanguage === "hi" ? "ऐतिहासिक डेटा कैसे देखें?" : "How to view historical data?"}</li>
                 <li>{currentLanguage === "hi" ? "अलर्ट कैसे सेट करें?" : "How to set alerts?"}</li>
+                  <li>{currentLanguage === "hi" ? "डेटा कैसे डाउनलोड करें?" : "How to download data?"}</li>
+                  <li>{currentLanguage === "hi" ? "CropMind की सुविधाएं" : "What are CropMind features?"}</li>
               </ul>
+              </div>
+
+              {/* Help Section */}
+              <div className="space-y-1">
+                <p className="font-semibold text-foreground mb-1">
+                  {currentLanguage === "hi" ? "🆘 मदद (Help)" : "🆘 Help"}
+                </p>
+                <ul className="list-disc list-inside space-y-0.5 ml-2">
+                  <li>{currentLanguage === "hi" ? "मदद" : "Help"}</li>
+                  <li>{currentLanguage === "hi" ? "क्या कर सकते हो?" : "What can you do?"}</li>
+                  <li>{currentLanguage === "hi" ? "क्या पूछ सकते हैं?" : "What can I ask?"}</li>
+                </ul>
+              </div>
             </div>
           </CollapsibleContent>
         </Collapsible>

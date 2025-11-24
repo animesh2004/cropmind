@@ -4,7 +4,7 @@ import { blynkStorage } from "@/lib/blynk-storage"
 
 type Period = "1Day" | "1Week" | "1Month"
 
-// Base historical data (can be replaced with database in production)
+// Fallback data if no database data available
 const baseDataByPeriod: Record<Period, Array<Record<string, number | string>>> = {
   "1Day": [
     { time: "00:00", temp: 22.1, moisture: 51.0, humidity: 58.2 },
@@ -37,8 +37,27 @@ export async function GET(request: Request) {
       ? periodParam
       : "1Week"
 
-    // Try to get current sensor data
+    // Get Blynk token from query parameter
     const token = searchParams.get("token")
+
+    // Calculate date range based on period
+    const now = new Date()
+    const startDate = new Date()
+    switch (period) {
+      case "1Day":
+        startDate.setDate(now.getDate() - 1)
+        break
+      case "1Week":
+        startDate.setDate(now.getDate() - 7)
+        break
+      case "1Month":
+        startDate.setMonth(now.getMonth() - 1)
+        break
+    }
+
+    let data: Array<Record<string, number | string>> = []
+
+    // Get real-time data or use fallback
     let currentData: { temp: number; moisture: number; humidity: number } | null = null
 
     if (token) {
@@ -63,66 +82,34 @@ export async function GET(request: Request) {
       }
     }
 
-    // If no token or failed to fetch, use mock current data
-    if (!currentData) {
-      currentData = {
-        temp: 24.5,
-        moisture: 55.3,
-        humidity: 62.1,
-      }
-    }
-
-    // Get base data for the period
+    // Use base data and add current reading
     const baseData = [...baseDataByPeriod[period]]
-
-    // Add current data as "Today" or "Now" entry
-    const now = new Date()
-    const timeLabel =
-      period === "1Day"
-        ? `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`
-        : period === "1Week"
-          ? "Today"
-          : "Week 4"
-
-    const currentEntry = {
-      time: timeLabel,
-      temp: Number(currentData.temp.toFixed(1)),
-      moisture: Number(currentData.moisture.toFixed(1)),
-      humidity: Number(currentData.humidity.toFixed(1)),
-    }
-
-    // Update or add current entry - replace last entry if it's the same time period
-    let data = [...baseData]
-    
-    // Always update the last entry with current real-time data for dynamic updates
-    const lastEntry = data[data.length - 1]
-    if (lastEntry) {
-      // Update existing last entry with current real-time data
-      data[data.length - 1] = {
-        ...lastEntry,
-        temp: currentEntry.temp,
-        moisture: currentEntry.moisture,
-        humidity: currentEntry.humidity,
-      }
-    } else {
-      // Add new entry if no data exists
-      data.push(currentEntry)
-    }
-
-    // For 1Day period, add more granular updates by appending new entries every few hours
-    if (period === "1Day" && data.length < 12) {
-      // Add current entry if it's a new time slot
+    if (currentData) {
       const now = new Date()
-      const currentHour = now.getHours()
-      const lastEntryTime = lastEntry?.time as string
-      
-      // Check if we need to add a new entry (every 2 hours)
-      if (!lastEntryTime || !lastEntryTime.includes(`${currentHour.toString().padStart(2, "0")}:`)) {
-        data.push(currentEntry)
+      const timeLabel =
+        period === "1Day"
+          ? `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`
+          : period === "1Week"
+            ? "Today"
+            : "Week 4"
+
+      const currentEntry = {
+        time: timeLabel,
+        temp: Number(currentData.temp.toFixed(1)),
+        moisture: Number(currentData.moisture.toFixed(1)),
+        humidity: Number(currentData.humidity.toFixed(1)),
+      }
+
+      if (baseData.length > 0) {
+        baseData[baseData.length - 1] = currentEntry
+      } else {
+        baseData.push(currentEntry)
       }
     }
 
-    return NextResponse.json({ period, data, timestamp: new Date().toISOString() })
+    data = baseData
+
+    return NextResponse.json({ period, data, timestamp: new Date().toISOString() });
   } catch (error) {
     console.error("Error in history API:", error)
     // Fallback to base data on error

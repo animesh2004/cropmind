@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 // Import GoogleGenAI for server-side (Node.js) usage
 // The package exports "./node" for server-side usage
 import { GoogleGenAI } from "@google/genai/node"
+import { 
+  getGeminiApiKey, 
+  GEMINI_MODEL_NAME, 
+  GEMINI_API_URL,
+  GEMINI_VOICES,
+  isGeminiConfigured 
+} from "@/lib/ai"
 
 /**
  * Gemini Text-to-Speech API Route
@@ -9,14 +16,8 @@ import { GoogleGenAI } from "@google/genai/node"
  * Based on the official example code
  */
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ""
-// Use the full model path format as required by the API
-const MODEL_NAME = "models/gemini-2.5-flash-preview-tts"
-
-// Validate model name and API key on module load
-if (!GEMINI_API_KEY && typeof process !== "undefined") {
-  console.warn("GEMINI_API_KEY is not set in environment variables")
-}
+const GEMINI_API_KEY = getGeminiApiKey()
+const MODEL_NAME = GEMINI_MODEL_NAME
 
 interface WavConversionOptions {
   numChannels: number
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!GEMINI_API_KEY || GEMINI_API_KEY.length === 0) {
+    if (!isGeminiConfigured()) {
       console.error("GEMINI_API_KEY is not configured")
       return NextResponse.json(
         { 
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
 
     // Map language to appropriate voice
     // Only two voices: Callirrhoe (English), Puck (Hindi)
-    const voiceName = language === "hi" ? "Puck" : "Callirrhoe"
+    const voiceName = language === "hi" ? GEMINI_VOICES.HINDI : GEMINI_VOICES.ENGLISH
 
     console.log("Gemini TTS Request:", {
       model: MODEL_NAME,
@@ -133,7 +134,7 @@ export async function POST(request: NextRequest) {
       try {
         // Use the model name directly in the URL (it already includes 'models/' prefix)
         const restResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/${MODEL_NAME}:generateContent?key=${GEMINI_API_KEY}`,
+          `${GEMINI_API_URL}/${MODEL_NAME}:generateContent?key=${GEMINI_API_KEY}`,
           {
             method: "POST",
             headers: {

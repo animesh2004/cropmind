@@ -54,3 +54,5 @@ Thumbs.db
 # Environment variables
 .env.local
 .env*.local
+
+/lib/generated/prisma

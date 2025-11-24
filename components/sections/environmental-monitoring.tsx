@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { motion } from "framer-motion"
 import SensorCard from "../sensor-card"
 import { Droplet, Thermometer, Wind, Beaker, Volume2, VolumeX, Share2, MessageCircle, Facebook, Twitter, Mail } from "lucide-react"
@@ -38,6 +38,10 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
     }
     return language || "en"
   })
+  
+  // Refs to track audio and prevent overlapping
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null)
+  const currentAudioUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
     // Get initial language from localStorage
@@ -101,6 +105,8 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
     }, 5000)
       return () => {
         clearInterval(interval)
+        // Cleanup audio on unmount
+        stopCurrentAudio()
         if (typeof window !== "undefined") {
           window.removeEventListener("languageChanged", handleLanguageChange as EventListener)
           window.removeEventListener("activeNodeChanged", handleNodeChange as EventListener)
@@ -178,93 +184,50 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
     return "bg-green-500 dark:bg-green-600 hover:bg-green-600 dark:hover:bg-green-700"
   }
 
-  // Text-to-Speech function - Uses external API for Hindi, browser TTS for English
-  const speakEnvironmentalData = async () => {
-    if (!data) return
-
-    // Stop any ongoing speech
-    if (isSpeaking) {
-      if (typeof window !== "undefined" && window.speechSynthesis) {
+  // Helper function to stop any currently playing audio
+  const stopCurrentAudio = () => {
+    // Stop browser TTS
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      try {
         window.speechSynthesis.cancel()
+      } catch (e) {
+        // Silently handle errors
       }
+    }
+
+    // Stop audio element
+    if (currentAudioRef.current) {
+      try {
+        currentAudioRef.current.pause()
+        currentAudioRef.current.currentTime = 0
+        currentAudioRef.current.onended = null
+        currentAudioRef.current.onerror = null
+      } catch (e) {
+        // Silently handle errors
+      }
+      currentAudioRef.current = null
+    }
+    
+    if (currentAudioUrlRef.current) {
+      try {
+        URL.revokeObjectURL(currentAudioUrlRef.current)
+      } catch (e) {
+        // Silently handle errors
+      }
+      currentAudioUrlRef.current = null
+    }
+    
+    setIsSpeaking(false)
+  }
+
+  // Browser TTS function - Instant response, no delay
+  const useBrowserTTS = (text: string, lang: string) => {
+    if (typeof window === "undefined" || !window.speechSynthesis) {
       setIsSpeaking(false)
       return
     }
 
-    // Get current language
-    const lang = typeof window !== "undefined" 
-      ? (localStorage.getItem("cropMind_language") || currentLanguage || "en") 
-      : (currentLanguage || "en")
-
-    // Generate speech text
-    const speechText = generateSpeechText(data, lang)
-
-    // For Hindi, use external TTS API
-    if (lang === "hi") {
-      try {
-        setIsSpeaking(true)
-        
-        // Call external TTS API
-        const response = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: speechText, language: "hi" }),
-        })
-
-        if (!response.ok) {
-          const error = await response.json()
-          throw new Error(error.error || "Failed to generate speech")
-        }
-
-        const audioData = await response.json()
-        
-        // If API returns audio URL or base64, play it
-        if (audioData.audioUrl) {
-          const audio = new Audio(audioData.audioUrl)
-          audio.onended = () => setIsSpeaking(false)
-          audio.onerror = () => {
-            setIsSpeaking(false)
-            console.error("Audio playback error")
-          }
-          audio.play()
-        } else if (audioData.audioBase64) {
-          // If API returns base64 audio
-          const audio = new Audio(`data:audio/mp3;base64,${audioData.audioBase64}`)
-          audio.onended = () => setIsSpeaking(false)
-          audio.onerror = () => {
-            setIsSpeaking(false)
-            console.error("Audio playback error")
-          }
-          audio.play()
-        } else {
-          // Fallback to browser TTS if API doesn't return audio
-          console.warn("TTS API didn't return audio, falling back to browser TTS")
-          useBrowserTTS(speechText, lang)
-        }
-      } catch (error) {
-        console.error("External TTS error:", error)
-        setIsSpeaking(false)
-        // Fallback to browser TTS
-        useBrowserTTS(speechText, lang)
-      }
-    } else {
-      // For English and other languages, use browser TTS
-      useBrowserTTS(speechText, lang)
-    }
-  }
-
-  // Browser TTS function (for English)
-  const useBrowserTTS = (text: string, lang: string) => {
-    // Check if Web Speech API is available
-    if (typeof window === "undefined" || !window.speechSynthesis) {
-      const msg = lang === "hi" 
-        ? "आपके ब्राउज़र में टेक्स्ट-टू-स्पीच समर्थित नहीं है।"
-        : "Text-to-speech is not supported in your browser."
-      alert(msg)
-      return
-    }
-
-    // Cancel any existing speech
+    // Cancel any existing speech immediately
     window.speechSynthesis.cancel()
 
     // Create new utterance
@@ -273,10 +236,24 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
     // Set language
     utterance.lang = lang === "hi" ? "hi-IN" : "en-IN"
     
-    // Set voice properties
+    // Set voice properties for natural speech
     utterance.rate = 0.9
     utterance.pitch = 1.0
     utterance.volume = 1.0
+
+    // Try to select a better voice if available
+    const voices = window.speechSynthesis.getVoices()
+    if (voices.length > 0) {
+      // Prefer native language voices
+      const preferredVoice = voices.find(voice => 
+        lang === "hi" 
+          ? voice.lang.includes("hi") || voice.lang.includes("Hindi")
+          : (voice.lang.includes("en") && !voice.lang.includes("hi"))
+      )
+      if (preferredVoice) {
+        utterance.voice = preferredVoice
+      }
+    }
 
     // Event handlers
     utterance.onstart = () => {
@@ -289,19 +266,46 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
 
     utterance.onerror = (error) => {
       setIsSpeaking(false)
-      // Don't show alert for normal interruptions
-      if (error.error !== "interrupted" && error.error !== "canceled") {
-        const errorMsg = lang === "hi" 
-          ? "भाषण उत्पन्न करने में विफल।"
-          : "Failed to generate speech."
-        console.error("Speech error:", error.error)
-      }
+      console.error("Speech synthesis error:", error)
     }
 
-    // Speak
-    setIsSpeaking(true)
+    // Speak immediately - no delay
     window.speechSynthesis.speak(utterance)
   }
+
+  // Text-to-Speech function - Uses browser TTS immediately for instant response
+  const speakEnvironmentalData = () => {
+    if (!data) return
+
+    // Stop any ongoing speech
+    if (isSpeaking) {
+      stopCurrentAudio()
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+        window.speechSynthesis.cancel()
+      }
+      setIsSpeaking(false)
+      return
+    }
+
+    // Stop any currently playing audio to prevent mixing
+    stopCurrentAudio()
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel()
+    }
+
+    // Set speaking state IMMEDIATELY for instant visual feedback
+    setIsSpeaking(true)
+
+    // Get current language (use state variable for faster access)
+    const lang = currentLanguage || "en"
+
+    // Generate speech text
+    const speechText = generateSpeechText(data, lang)
+
+    // Use browser TTS immediately - no delay, instant response
+    useBrowserTTS(speechText, lang)
+  }
+
 
   // Generate speech text in selected language - Simple and direct
   const generateSpeechText = (sensorData: SensorResponse, lang: string): string => {

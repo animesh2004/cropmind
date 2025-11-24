@@ -6,6 +6,7 @@ import { User, Globe, Radio } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Button } from "@/components/ui/button"
 import { getTranslation } from "@/lib/translations"
 import NodeManager from "@/components/node-manager"
 import { getActiveNode } from "@/lib/blynk-nodes"
@@ -17,7 +18,7 @@ const supportedLanguages = [
 ]
 
 export default function UserProfile() {
-  const [userName, setUserName] = useState("Animesh")
+  const [userName, setUserName] = useState("")
   const [language, setLanguage] = useState("en")
   const [isOpen, setIsOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -26,8 +27,8 @@ export default function UserProfile() {
     setMounted(true)
     // Load from localStorage
     const savedName = localStorage.getItem("cropMind_userName")
-    const savedLang = localStorage.getItem("cropMind_language") || "en"
     if (savedName) setUserName(savedName)
+    const savedLang = localStorage.getItem("cropMind_language") || "en"
     if (savedLang) setLanguage(savedLang)
   }, [])
 

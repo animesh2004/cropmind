@@ -45,11 +45,12 @@ export default function HistoricalData({ language = "en" }: { language?: string 
       try {
         setLoading(true)
         setError(null)
+        
+        // Get Blynk token
         const { getActiveNodeToken } = await import("@/lib/blynk-nodes")
-        const token = getActiveNodeToken()
-        const url = token
-          ? `/api/sensors/history?period=${activePeriod}&token=${encodeURIComponent(token)}`
-          : `/api/sensors/history?period=${activePeriod}`
+        const blynkToken = getActiveNodeToken()
+        
+        const url = `/api/sensors/history?period=${activePeriod}${blynkToken ? `&token=${encodeURIComponent(blynkToken)}` : ""}`
         const res = await fetch(url, { cache: "no-store" })
         if (!res.ok) throw new Error("Failed to load history")
         const json = (await res.json()) as { period: Period; data: Array<Record<string, number | string>>; timestamp?: string }
@@ -121,115 +122,99 @@ export default function HistoricalData({ language = "en" }: { language?: string 
             </motion.div>
           ))}
           
-          {/* Download CSV Button with 3 format options */}
-          {data.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex items-center gap-2"
-                >
-                  <Download className="w-4 h-4" />
-                  <span className="hidden sm:inline">{currentLanguage === "hi" ? "डाउनलोड" : "Download"}</span>
-                  <ChevronDown className="w-3 h-3" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuItem
-                  onClick={() => {
-                    // Standard Format: Time, Temperature, Moisture, Humidity
-                    const headers = currentLanguage === "hi" 
-                      ? "समय,तापमान (°C),नमी (%),आर्द्रता (%)"
-                      : "Time,Temperature (°C),Moisture (%),Humidity (%)"
-                    const rows = data.map((row) => 
-                      `${row.time || ""},${row.temp || 0},${row.moisture || 0},${row.humidity || 0}`
-                    ).join("\n")
-                    const csvContent = `${headers}\n${rows}`
-                    downloadCSV(csvContent, `cropmind-standard-${activePeriod.toLowerCase()}-${new Date().toISOString().split("T")[0]}.csv`)
-                  }}
-                  className="cursor-pointer"
-                >
-                  <span>{currentLanguage === "hi" ? "📊 मानक प्रारूप" : "📊 Standard Format"}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    // Detailed Format: Time, Temperature, Moisture, Humidity, pH (if available), Date
-                    const headers = currentLanguage === "hi"
-                      ? "दिनांक,समय,तापमान (°C),नमी (%),आर्द्रता (%),pH,टिप्पणी"
-                      : "Date,Time,Temperature (°C),Moisture (%),Humidity (%),pH,Notes"
-                    const rows = data.map((row) => {
-                      const date = new Date().toLocaleDateString()
-                      const time = row.time || ""
-                      const temp = row.temp || 0
-                      const moisture = row.moisture || 0
-                      const humidity = row.humidity || 0
-                      const ph = row.ph || "N/A"
-                      const notes = currentLanguage === "hi" ? "सेंसर डेटा" : "Sensor Data"
-                      return `${date},${time},${temp},${moisture},${humidity},${ph},${notes}`
-                    }).join("\n")
-                    const csvContent = `${headers}\n${rows}`
-                    downloadCSV(csvContent, `cropmind-detailed-${activePeriod.toLowerCase()}-${new Date().toISOString().split("T")[0]}.csv`)
-                  }}
-                  className="cursor-pointer"
-                >
-                  <span>{currentLanguage === "hi" ? "📋 विस्तृत प्रारूप" : "📋 Detailed Format"}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    // Summary Format: Period summary with min, max, avg
-                    const temps = data.map((r) => Number(r.temp) || 0).filter((v) => v > 0)
-                    const moistures = data.map((r) => Number(r.moisture) || 0).filter((v) => v > 0)
-                    const humidities = data.map((r) => Number(r.humidity) || 0).filter((v) => v > 0)
-                    
-                    const avgTemp = temps.length > 0 ? (temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(2) : "0"
-                    const minTemp = temps.length > 0 ? Math.min(...temps).toFixed(2) : "0"
-                    const maxTemp = temps.length > 0 ? Math.max(...temps).toFixed(2) : "0"
-                    
-                    const avgMoisture = moistures.length > 0 ? (moistures.reduce((a, b) => a + b, 0) / moistures.length).toFixed(2) : "0"
-                    const minMoisture = moistures.length > 0 ? Math.min(...moistures).toFixed(2) : "0"
-                    const maxMoisture = moistures.length > 0 ? Math.max(...moistures).toFixed(2) : "0"
-                    
-                    const avgHumidity = humidities.length > 0 ? (humidities.reduce((a, b) => a + b, 0) / humidities.length).toFixed(2) : "0"
-                    const minHumidity = humidities.length > 0 ? Math.min(...humidities).toFixed(2) : "0"
-                    const maxHumidity = humidities.length > 0 ? Math.max(...humidities).toFixed(2) : "0"
-                    
-                    const periodName = activePeriod === "1Day" 
-                      ? (currentLanguage === "hi" ? "1 दिन" : "1 Day")
-                      : activePeriod === "1Week"
-                      ? (currentLanguage === "hi" ? "1 सप्ताह" : "1 Week")
-                      : (currentLanguage === "hi" ? "1 महीना" : "1 Month")
-                    
-                    const headers = currentLanguage === "hi"
-                      ? "पैरामीटर,न्यूनतम,अधिकतम,औसत,इकाई"
-                      : "Parameter,Minimum,Maximum,Average,Unit"
-                    
-                    const rows = [
-                      currentLanguage === "hi" 
-                        ? `तापमान,${minTemp},${maxTemp},${avgTemp},°C`
-                        : `Temperature,${minTemp},${maxTemp},${avgTemp},°C`,
-                      currentLanguage === "hi"
-                        ? `नमी,${minMoisture},${maxMoisture},${avgMoisture},%`
-                        : `Moisture,${minMoisture},${maxMoisture},${avgMoisture},%`,
-                      currentLanguage === "hi"
-                        ? `आर्द्रता,${minHumidity},${maxHumidity},${avgHumidity},%`
-                        : `Humidity,${minHumidity},${maxHumidity},${avgHumidity},%`
-                    ].join("\n")
-                    
-                    const summary = currentLanguage === "hi"
-                      ? `अवधि: ${periodName}\nतारीख: ${new Date().toLocaleDateString()}\nकुल रिकॉर्ड: ${data.length}\n\n`
-                      : `Period: ${periodName}\nDate: ${new Date().toLocaleDateString()}\nTotal Records: ${data.length}\n\n`
-                    
-                    const csvContent = `${summary}${headers}\n${rows}`
-                    downloadCSV(csvContent, `cropmind-summary-${activePeriod.toLowerCase()}-${new Date().toISOString().split("T")[0]}.csv`)
-                  }}
-                  className="cursor-pointer"
-                >
-                  <span>{currentLanguage === "hi" ? "📈 सारांश प्रारूप" : "📈 Summary Format"}</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+          {/* Download Button - Now downloads all data from database */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex items-center gap-2"
+                disabled={loading}
+              >
+                <Download className="w-4 h-4" />
+                <span className="hidden sm:inline">{currentLanguage === "hi" ? "डाउनलोड" : "Download"}</span>
+                <ChevronDown className="w-3 h-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem
+                onClick={async () => {
+                  try {
+                    const { getActiveNodeToken } = await import("@/lib/blynk-nodes")
+                    const blynkToken = getActiveNodeToken()
+                    if (!blynkToken) {
+                      alert(currentLanguage === "hi" ? "कृपया Blynk टोकन जोड़ें" : "Please add a Blynk token")
+                      return
+                    }
+                    const response = await fetch(`/api/sensors/download?format=csv&token=${encodeURIComponent(blynkToken)}`)
+                    if (response.ok) {
+                      const blob = await response.blob()
+                      const url = URL.createObjectURL(blob)
+                      const link = document.createElement("a")
+                      link.href = url
+                      link.download = `cropmind-all-data-${new Date().toISOString().split("T")[0]}.csv`
+                      link.click()
+                      URL.revokeObjectURL(url)
+                    } else {
+                      alert(currentLanguage === "hi" ? "डाउनलोड विफल" : "Download failed")
+                    }
+                  } catch (error) {
+                    console.error("Download error:", error)
+                    alert(currentLanguage === "hi" ? "डाउनलोड विफल" : "Download failed")
+                  }
+                }}
+                className="cursor-pointer"
+              >
+                <span>{currentLanguage === "hi" ? "📊 सभी डेटा (CSV)" : "📊 All Data (CSV)"}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={async () => {
+                  try {
+                    const { getActiveNodeToken } = await import("@/lib/blynk-nodes")
+                    const blynkToken = getActiveNodeToken()
+                    if (!blynkToken) {
+                      alert(currentLanguage === "hi" ? "कृपया Blynk टोकन जोड़ें" : "Please add a Blynk token")
+                      return
+                    }
+                    const response = await fetch(`/api/sensors/download?format=json&token=${encodeURIComponent(blynkToken)}`)
+                    if (response.ok) {
+                      const blob = await response.blob()
+                      const url = URL.createObjectURL(blob)
+                      const link = document.createElement("a")
+                      link.href = url
+                      link.download = `cropmind-all-data-${new Date().toISOString().split("T")[0]}.json`
+                      link.click()
+                      URL.revokeObjectURL(url)
+                    } else {
+                      alert(currentLanguage === "hi" ? "डाउनलोड विफल" : "Download failed")
+                    }
+                  } catch (error) {
+                    console.error("Download error:", error)
+                    alert(currentLanguage === "hi" ? "डाउनलोड विफल" : "Download failed")
+                  }
+                }}
+                className="cursor-pointer"
+              >
+                <span>{currentLanguage === "hi" ? "📋 सभी डेटा (JSON)" : "📋 All Data (JSON)"}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  // Quick download of current graph view (backward compatibility)
+                  const headers = currentLanguage === "hi" 
+                    ? "समय,तापमान (°C),नमी (%),आर्द्रता (%)"
+                    : "Time,Temperature (°C),Moisture (%),Humidity (%)"
+                  const rows = data.map((row) => 
+                    `${row.time || ""},${row.temp || 0},${row.moisture || 0},${row.humidity || 0}`
+                  ).join("\n")
+                  const csvContent = `${headers}\n${rows}`
+                  downloadCSV(csvContent, `cropmind-graph-${activePeriod.toLowerCase()}-${new Date().toISOString().split("T")[0]}.csv`)
+                }}
+                className="cursor-pointer"
+              >
+                <span>{currentLanguage === "hi" ? "📈 वर्तमान ग्राफ" : "📈 Current Graph View"}</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 

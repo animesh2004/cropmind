@@ -59,6 +59,14 @@ export default function Dashboard({ language = "en" }: { language?: string }) {
         const url = token ? `/api/sensors?token=${encodeURIComponent(token)}` : "/api/sensors"
         const res = await fetch(url, { cache: "no-store" })
         if (!res.ok) return
+        
+        // Check if response is JSON before parsing
+        const contentType = res.headers.get("content-type")
+        if (!contentType || !contentType.includes("application/json")) {
+          console.warn("API returned non-JSON response")
+          return
+        }
+        
         const data = await res.json()
         
         // Store sensor data for export

@@ -9,7 +9,9 @@
  * V8 - pH Sensor
  */
 
-const BLYNK_SERVER = process.env.BLYNK_SERVER || "blynk.cloud"
+import { getBlynkServer, BLYNK_API_URL } from "./ai"
+
+const BLYNK_SERVER = getBlynkServer()
 
 export interface BlynkPinData {
   value: number | string
@@ -22,7 +24,7 @@ export async function fetchBlynkPin(token: string, pin: string): Promise<BlynkPi
   }
 
   try {
-    const url = `https://${BLYNK_SERVER}/external/api/get?token=${encodeURIComponent(token)}&${pin}`
+    const url = `${BLYNK_API_URL}/external/api/get?token=${encodeURIComponent(token)}&${pin}`
     
     // Create abort controller for timeout (compatible with all Node versions)
     const controller = new AbortController()

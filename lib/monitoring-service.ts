@@ -81,46 +81,97 @@ class MonitoringService {
       const { getActiveNodeToken } = await import("./blynk-nodes")
       const token = getActiveNodeToken()
       if (!token) {
-        console.warn("No Blynk token found for monitoring")
+        // Silently return if no token - this is expected when no node is configured
         return
       }
 
-      // Fetch sensor data
+      // Fetch sensor data with timeout and error handling
       const sensorsUrl = `/api/sensors?token=${encodeURIComponent(token)}`
       const securityUrl = `/api/security?token=${encodeURIComponent(token)}`
 
-      const [sensorsRes, securityRes] = await Promise.all([
-        fetch(sensorsUrl, { cache: "no-store" }),
-        fetch(securityUrl, { cache: "no-store" }),
-      ])
+      // Create abort controller for timeout
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
 
-      if (!sensorsRes.ok || !securityRes.ok) {
-        console.error("Failed to fetch sensor data for monitoring")
+      try {
+        // Use Promise.allSettled to handle individual failures gracefully
+        const [sensorsResult, securityResult] = await Promise.allSettled([
+          fetch(sensorsUrl, { cache: "no-store", signal: controller.signal }).catch(() => null),
+          fetch(securityUrl, { cache: "no-store", signal: controller.signal }).catch(() => null),
+        ])
+
+        clearTimeout(timeoutId)
+
+        // Check if sensors fetch succeeded
+        if (
+          sensorsResult.status === "rejected" ||
+          !sensorsResult.value ||
+          !sensorsResult.value.ok
+        ) {
+          // Silently fail - don't spam console with errors
+          return
+        }
+
+        // Parse sensor data
+        let sensorsData: SensorData
+        try {
+          sensorsData = (await sensorsResult.value.json()) as SensorData
+        } catch (parseError) {
+          // Invalid JSON response - silently fail
+          return
+        }
+
+        // Handle security data (optional - may not always be available)
+        let pir = 0
+        let flame = 0
+        if (securityResult.status === "fulfilled" && securityResult.value && securityResult.value.ok) {
+          try {
+            const securityData = (await securityResult.value.json()) as { pir?: number; flame?: number }
+            pir = securityData.pir ?? 0
+            flame = securityData.flame ?? 0
+          } catch {
+            // Security data parse error - use defaults
+          }
+        }
+
+        // Validate sensor data before processing
+        if (
+          typeof sensorsData.soilMoisture !== "number" ||
+          typeof sensorsData.temperature !== "number" ||
+          typeof sensorsData.humidity !== "number" ||
+          typeof sensorsData.ph !== "number"
+        ) {
+          // Invalid data structure - silently fail
+          return
+        }
+
+        const sensorData: SensorData = {
+          ...sensorsData,
+          pir,
+          flame,
+        }
+
+        // Check for instant alerts (fire and animal)
+        if (this.config.instantAlerts) {
+          await this.checkInstantAlerts(sensorData)
+        }
+
+        // Send periodic alert
+        if (this.config.periodicAlerts) {
+          await this.sendPeriodicAlert(sensorData)
+        }
+
+        this.lastCheckTime = Date.now()
+      } catch (fetchError) {
+        clearTimeout(timeoutId)
+        // Silently handle fetch errors - don't spam console
+        // These are expected when network is unavailable or API is down
         return
       }
-
-      const sensorsData = (await sensorsRes.json()) as SensorData
-      const securityData = (await securityRes.json()) as { pir: number; flame: number }
-
-      const sensorData: SensorData = {
-        ...sensorsData,
-        pir: securityData.pir,
-        flame: securityData.flame,
-      }
-
-      // Check for instant alerts (fire and animal)
-      if (this.config.instantAlerts) {
-        await this.checkInstantAlerts(sensorData)
-      }
-
-      // Send periodic alert
-      if (this.config.periodicAlerts) {
-        await this.sendPeriodicAlert(sensorData)
-      }
-
-      this.lastCheckTime = Date.now()
     } catch (error) {
-      console.error("Error in monitoring check:", error)
+      // Silently handle all other errors - don't spam console
+      // These are expected in various scenarios (no token, network issues, etc.)
+      return
     }
   }
 

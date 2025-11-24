@@ -3,8 +3,10 @@
  * Provides intelligent, context-aware agricultural recommendations
  */
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ""
-const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
+import { getGeminiApiKey, GEMINI_API_URL, isGeminiConfigured } from "./ai"
+
+const GEMINI_API_KEY = getGeminiApiKey()
+const GEMINI_GENERATE_URL = `${GEMINI_API_URL}/models/gemini-pro:generateContent`
 
 export interface RecommendationInput {
   moisture: number
@@ -36,7 +38,7 @@ export interface GeminiRecommendationResponse {
 export async function getGeminiRecommendations(
   input: RecommendationInput
 ): Promise<GeminiRecommendationResponse | null> {
-  if (!GEMINI_API_KEY || GEMINI_API_KEY.length === 0) {
+  if (!isGeminiConfigured()) {
     console.log("Gemini API key not configured")
     return null
   }
@@ -47,7 +49,7 @@ export async function getGeminiRecommendations(
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
 
-    const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+    const response = await fetch(`${GEMINI_GENERATE_URL}?key=${GEMINI_API_KEY}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

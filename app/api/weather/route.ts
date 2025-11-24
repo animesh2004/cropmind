@@ -1,4 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
+import {
+  getOpenWeatherApiKey,
+  getAccuWeatherApiKey,
+  hasOpenWeatherKey,
+  hasAccuWeatherKey,
+  hasAnyWeatherKey,
+  OPENWEATHER_API_URL,
+  ACCUWEATHER_API_URL,
+  IS_PRODUCTION,
+  getDeploymentPlatform,
+} from "@/lib/ai"
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,14 +19,13 @@ export async function GET(request: NextRequest) {
     const lon = searchParams.get("lon")
     
     // Try OpenWeatherMap first (more reliable and free)
-    // Get and trim API keys to remove any whitespace
-    // Note: In production, these must be set in your deployment platform's environment variables
-    const openWeatherKey = (process.env.OPENWEATHER_API_KEY || process.env.NEXT_PUBLIC_OPENWEATHER_API_KEY || "").trim()
-    const accuWeatherKey = (process.env.ACCUWEATHER_API_KEY || "").trim()
+    // Get API keys from centralized config
+    const openWeatherKey = getOpenWeatherApiKey()
+    const accuWeatherKey = getAccuWeatherApiKey()
     
     // Validate API keys are not empty
-    const hasOpenWeatherKey = openWeatherKey.length > 0
-    const hasAccuWeatherKey = accuWeatherKey.length > 0
+    const hasOpenWeather = hasOpenWeatherKey()
+    const hasAccuWeather = hasAccuWeatherKey()
     
     // Log in production for debugging (without exposing keys)
     if (process.env.NODE_ENV === "production") {

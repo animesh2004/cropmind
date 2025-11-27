@@ -33,10 +33,25 @@ export async function GET(request: Request) {
 
     // Always try polling first (more reliable in production)
     let blynkData = null
+    let blynkError = null
     try {
       blynkData = await fetchBlynkSensors(token)
     } catch (error) {
+      blynkError = error instanceof Error ? {
+        message: error.message,
+        name: error.name,
+        stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+      } : String(error)
       console.error("Error fetching from Blynk:", error)
+      
+      // Log detailed error for deployment debugging
+      if (process.env.NODE_ENV === "production") {
+        console.error("[DEPLOYMENT] Blynk fetch error details:", {
+          token: token.substring(0, 8) + "...",
+          error: blynkError,
+          timestamp: new Date().toISOString(),
+        })
+      }
     }
 
     // Use webhook data if available and recent, otherwise use polling data
@@ -77,6 +92,12 @@ export async function GET(request: Request) {
     // If both fail, return mock data with warning (better UX than error)
     // This ensures the UI still works even if Blynk is unavailable
     const now = new Date().toISOString()
+    
+    // Include error details in development, but not in production for security
+    const errorDetails = process.env.NODE_ENV === "development" && blynkError 
+      ? { debug: blynkError }
+      : {}
+    
     return NextResponse.json({
       timestamp: now,
       soilMoisture: 55.3,
@@ -88,6 +109,10 @@ export async function GET(request: Request) {
       status: "warning",
       source: "fallback",
       message: "Using fallback data. Please check your Blynk token and ensure your IoT device is connected to Blynk cloud.",
+      debugUrl: process.env.NODE_ENV === "development" 
+        ? `/api/sensors/debug?token=${encodeURIComponent(token)}`
+        : undefined,
+      ...errorDetails,
     })
   } catch (error) {
     console.error("Error in sensors API:", error)

@@ -31,11 +31,13 @@ export async function fetchBlynkPin(token: string, pin: string): Promise<BlynkPi
     const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
     
     const response = await fetch(url, {
+      method: "GET",
       cache: "no-store",
-      next: { revalidate: 0 }, // Always fetch fresh data
+      // Remove next.revalidate for serverless compatibility
       headers: {
         "User-Agent": "CropMind/1.0",
         "Accept": "text/plain, application/json",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
       },
       signal: controller.signal,
     })

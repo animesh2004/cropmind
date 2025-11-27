@@ -74,20 +74,39 @@ export async function GET(request: Request) {
     })
     }
 
-    // If both fail, return error with helpful message
-    return NextResponse.json(
-      { 
-        error: "Failed to fetch data from Blynk. Please check your token and ensure Blynk device is online.",
-        hint: "Make sure your Blynk token is correct and your IoT device is connected to Blynk cloud."
-      },
-      { status: 500 }
-    )
+    // If both fail, return mock data with warning (better UX than error)
+    // This ensures the UI still works even if Blynk is unavailable
+    const now = new Date().toISOString()
+    return NextResponse.json({
+      timestamp: now,
+      soilMoisture: 55.3,
+      temperature: 24.5,
+      humidity: 62.1,
+      ph: 6.8,
+      pir: 0,
+      flame: 0,
+      status: "warning",
+      source: "fallback",
+      message: "Using fallback data. Please check your Blynk token and ensure your IoT device is connected to Blynk cloud.",
+    })
   } catch (error) {
     console.error("Error in sensors API:", error)
-    return NextResponse.json({ 
-      error: "Internal server error",
-      details: error instanceof Error ? error.message : String(error)
-    }, { status: 500 })
+    
+    // Return fallback data instead of error to keep UI functional
+    const now = new Date().toISOString()
+    return NextResponse.json({
+      timestamp: now,
+      soilMoisture: 55.3,
+      temperature: 24.5,
+      humidity: 62.1,
+      ph: 6.8,
+      pir: 0,
+      flame: 0,
+      status: "error",
+      source: "fallback",
+      message: "API error occurred. Using fallback data.",
+      error: error instanceof Error ? error.message : String(error)
+    })
   }
 }
 

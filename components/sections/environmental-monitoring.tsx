@@ -22,6 +22,8 @@ type SensorResponse = {
   humidity: number
   ph: number
   status: string
+  source?: string
+  message?: string
 }
 
 export default function EnvironmentalMonitoring({ language = "en" }: { language?: string }) {
@@ -71,10 +73,34 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
         setLoading(true)
         setError(null)
         const token = getActiveNodeToken()
-        const url = token ? `/api/sensors?token=${encodeURIComponent(token)}` : "/api/sensors"
-        const res = await fetch(url, { cache: "no-store" })
-        if (!res.ok) throw new Error("Failed to load sensors")
+        
+        // Use absolute URL in production/deployment
+        const baseUrl = typeof window !== "undefined" ? window.location.origin : ""
+        const url = token 
+          ? `${baseUrl}/api/sensors?token=${encodeURIComponent(token)}` 
+          : `${baseUrl}/api/sensors`
+        
+        const res = await fetch(url, { 
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json",
+          }
+        })
+        
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}))
+          const errorMessage = errorData.error || errorData.message || `HTTP ${res.status}: ${res.statusText}`
+          throw new Error(errorMessage)
+        }
+        
         const json = (await res.json()) as SensorResponse
+        
+        // Check if response has error
+        if (json.status === "error" || (json as any).error) {
+          const errorMsg = (json as any).error || "Failed to fetch sensor data"
+          throw new Error(errorMsg)
+        }
+        
         setData(json)
         // Ensure pH is properly parsed and updated
         const phValue = typeof json.ph === 'number' ? json.ph : (typeof json.ph === 'string' ? parseFloat(json.ph) : parseFloat(String(json.ph || '6.8')))
@@ -92,7 +118,20 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
           }))
         }
       } catch (e) {
-        setError("Could not fetch sensor data")
+        const errorMessage = e instanceof Error ? e.message : "Could not fetch sensor data"
+        console.error("Error loading sensor data:", e)
+        setError(errorMessage)
+        
+        // Still set mock data as fallback for UI continuity
+        const now = new Date().toISOString()
+        setData({
+          timestamp: now,
+          soilMoisture: 0,
+          temperature: 0,
+          humidity: 0,
+          ph: 6.8,
+          status: "error",
+        })
       } finally {
         setLoading(false)
       }
@@ -654,6 +693,31 @@ export default function EnvironmentalMonitoring({ language = "en" }: { language?
         <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4 text-destructive text-center mb-6">
           {error}
         </div>
+      )}
+
+      {/* Fallback Data Warning */}
+      {data && (data.source === "fallback" || data.status === "warning" || data.status === "error") && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 p-4 rounded-lg border-2 bg-yellow-100 dark:bg-yellow-900/30 border-yellow-500 dark:border-yellow-400 text-yellow-800 dark:text-yellow-200"
+        >
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0 mt-0.5">
+              <span className="text-2xl">⚠️</span>
+            </div>
+            <div className="flex-1">
+              <p className="font-semibold mb-1">
+                {currentLanguage === "hi" ? "डेटा कनेक्शन चेतावनी" : "Data Connection Warning"}
+              </p>
+              <p className="text-sm leading-relaxed">
+                {data.message || (currentLanguage === "hi" 
+                  ? "Blynk से डेटा प्राप्त नहीं हो रहा है। फॉलबैक डेटा दिखाया जा रहा है। कृपया अपने Blynk टोकन और IoT डिवाइस कनेक्शन की जांच करें।"
+                  : "Unable to fetch data from Blynk. Showing fallback data. Please check your Blynk token and ensure your IoT device is connected to Blynk cloud.")}
+              </p>
+            </div>
+          </div>
+        </motion.div>
       )}
 
       {/* Critical Alerts */}

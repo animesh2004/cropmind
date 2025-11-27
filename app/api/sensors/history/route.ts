@@ -85,26 +85,26 @@ export async function GET(request: Request) {
     // Use base data and add current reading
     const baseData = [...baseDataByPeriod[period]]
     if (currentData) {
-      const now = new Date()
-      const timeLabel =
-        period === "1Day"
-          ? `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`
-          : period === "1Week"
-            ? "Today"
-            : "Week 4"
+    const now = new Date()
+    const timeLabel =
+      period === "1Day"
+        ? `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`
+        : period === "1Week"
+          ? "Today"
+          : "Week 4"
 
-      const currentEntry = {
-        time: timeLabel,
-        temp: Number(currentData.temp.toFixed(1)),
-        moisture: Number(currentData.moisture.toFixed(1)),
-        humidity: Number(currentData.humidity.toFixed(1)),
-      }
+    const currentEntry = {
+      time: timeLabel,
+      temp: Number(currentData.temp.toFixed(1)),
+      moisture: Number(currentData.moisture.toFixed(1)),
+      humidity: Number(currentData.humidity.toFixed(1)),
+    }
 
       if (baseData.length > 0) {
         baseData[baseData.length - 1] = currentEntry
-      } else {
+    } else {
         baseData.push(currentEntry)
-      }
+    }
     }
 
     data = baseData
